@@ -107,3 +107,4 @@ export class SalesforceLogScanner {
 }
 
 export * from './semantic.js';
+export * from './correlator.js';
