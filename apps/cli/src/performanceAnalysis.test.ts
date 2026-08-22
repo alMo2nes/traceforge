@@ -13,8 +13,7 @@ describe('performance analysis with the sample log', () => {
 
     expect(analysis.totalExecutionDurationMs).toBeGreaterThan(0);
     expect(analysis.primaryBottleneck?.event.type).toBe('METHOD');
-    expect(analysis.expensiveOperation?.event.type).toBe('METHOD');
-    expect(analysis.expensiveCallouts?.events.length).toBeGreaterThan(0);
+    expect(analysis.applicationHotspots.length).toBeGreaterThan(0);
     expect(analysis.recommendations.length).toBeGreaterThan(0);
   });
 });
