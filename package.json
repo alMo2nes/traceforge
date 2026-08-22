@@ -8,7 +8,10 @@
     "build": "tsc -b",
     "test": "vitest run",
     "test:watch": "vitest",
-    "cli": "tsx apps/cli/src/index.ts"
+    "cli": "tsx apps/cli/src/index.ts",
+    "web": "pnpm --dir apps/web dev",
+    "web:build": "pnpm --dir apps/web build",
+    "web:preview": "pnpm --dir apps/web preview"
   },
   "devDependencies": {
     "@types/node": "^24.13.3",
