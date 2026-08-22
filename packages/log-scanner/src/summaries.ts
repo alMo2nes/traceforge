@@ -24,9 +24,10 @@ export function parseSalesforceLogSummaries(content: string): SalesforceLogSumma
   let emailsQueued: number | undefined;
   let currentNamespace: GovernorLimitUsage | undefined;
   let profilingCategory: CumulativeProfilingEntry['category'] = 'UNKNOWN';
+  let inGovernorLimitBlock = false;
 
-  for (let i = 0; i < lines.length; i += 1) {
-    const line = lines[i]?.trimEnd() ?? '';
+  for (const line of lines) {
+    const trimmed = line.trim();
 
     const limitHeader = line.match(/\|LIMIT_USAGE_FOR_NS\|([^|]*)\|$/);
     if (limitHeader) {
@@ -35,31 +36,37 @@ export function parseSalesforceLogSummaries(content: string): SalesforceLogSumma
         metrics: {}
       };
       governorLimits.push(currentNamespace);
+      inGovernorLimitBlock = true;
       continue;
     }
 
-    if (currentNamespace) {
-      const metric = line.trim().match(/^(.+?):\s*(\d+) out of (\d+)$/);
-      if (metric) {
+    if (inGovernorLimitBlock) {
+      const metric = trimmed.match(/^(.+?):\s*(\d+) out of (\d+)$/);
+      if (metric && currentNamespace) {
         currentNamespace.metrics[metric[1].trim()] = {
           used: Number(metric[2]),
           limit: Number(metric[3])
         };
         continue;
       }
+
       if (line.includes('|TOTAL_EMAIL_RECIPIENTS_QUEUED|')) {
-        const value = line.split('|').at(-1);
-        if (value && /^\d+$/.test(value)) emailsQueued = Number(value);
+        const value = line.split('|').at(-1)?.trim();
+        if (value && /^\d+$/.test(value)) {
+          emailsQueued = Number(value);
+        }
         continue;
       }
-      if (line.startsWith('')) {
-        if (!line.trim()) currentNamespace = undefined;
+
+      if (line.includes('|CUMULATIVE_LIMIT_USAGE_END')) {
+        inGovernorLimitBlock = false;
+        currentNamespace = undefined;
       }
     }
 
-    const profilingHeader = line.match(/\|CUMULATIVE_PROFILING\|(.+?)\|$/);
+    const profilingHeader = line.match(/\|CUMULATIVE_PROFILING\|(.+?)(?:\||$)/);
     if (profilingHeader) {
-      const value = profilingHeader[1];
+      const value = profilingHeader[1].trim();
       if (/^SOQL operations$/.test(value)) profilingCategory = 'SOQL';
       else if (/^SOSL operations$/.test(value)) profilingCategory = 'SOSL';
       else if (/^DML operations$/.test(value)) profilingCategory = 'DML';
@@ -68,11 +75,13 @@ export function parseSalesforceLogSummaries(content: string): SalesforceLogSumma
       continue;
     }
 
-    if (line.includes('|CUMULATIVE_PROFILING|')) {
-      const text = line.split('|CUMULATIVE_PROFILING|')[1]?.trim();
-      if (text && text !== 'No profiling information for SOSL operations' && !/^(SOQL operations|SOSL operations|DML operations|method invocations)$/.test(text)) {
-        profiling.push(parseProfilingEntry(text, profilingCategory));
-      }
+    if (line.includes('|CUMULATIVE_PROFILING_END')) {
+      profilingCategory = 'UNKNOWN';
+      continue;
+    }
+
+    if (profilingCategory !== 'UNKNOWN' && trimmed && trimmed !== 'No profiling information for SOSL operations') {
+      profiling.push(parseProfilingEntry(trimmed, profilingCategory));
     }
   }
 
@@ -81,7 +90,7 @@ export function parseSalesforceLogSummaries(content: string): SalesforceLogSumma
 
 function parseProfilingEntry(text: string, category: CumulativeProfilingEntry['category']): CumulativeProfilingEntry {
   const lineMatch = text.match(/line (\d+), column \d+:/);
-  const executionMatch = text.match(/: executed (\d+) time in ([\d.]+) ms$/);
+  const executionMatch = text.match(/: executed (\d+) time(?:s)? in ([\d.]+) ms$/);
   const entry: CumulativeProfilingEntry = {
     category,
     text,
