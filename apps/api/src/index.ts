@@ -59,12 +59,12 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
       return json(res, 200, { levels, finestAvailable: finest, finestAutoCreate: !finest });
     }
 
-    if (req.method === 'GET' && parts[0] === 'api' && parts[1] === 'orgs' && parts[3] === 'logs') {
-      return json(res, 200, await debugLogs.listLogs(decodeURIComponent(parts[2])));
-    }
-
     if (req.method === 'GET' && parts[0] === 'api' && parts[1] === 'orgs' && parts[3] === 'logs' && parts.length === 5) {
       return json(res, 200, { content: await debugLogs.fetchLog(decodeURIComponent(parts[2]), decodeURIComponent(parts[4])) });
+    }
+
+    if (req.method === 'GET' && parts[0] === 'api' && parts[1] === 'orgs' && parts[3] === 'logs' && parts.length === 4) {
+      return json(res, 200, await debugLogs.listLogs(decodeURIComponent(parts[2])));
     }
 
     if (req.method === 'POST' && parts[0] === 'api' && parts[1] === 'orgs' && parts[3] === 'trace-flags') {
