@@ -9,6 +9,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "cli": "tsx apps/cli/src/index.ts",
+    "api": "pnpm --dir apps/api dev",
     "web": "pnpm --dir apps/web dev",
     "web:build": "pnpm --dir apps/web build",
     "web:preview": "pnpm --dir apps/web preview"
