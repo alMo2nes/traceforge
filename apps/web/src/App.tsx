@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { flattenNodes, logs, type InvestigationNode, type LogRecord } from './data';
 import './styles.css';
+import './layout.css';
 
 const nodeIcon: Record<InvestigationNode['kind'], string> = {
   transaction: 'TX',
@@ -10,6 +11,15 @@ const nodeIcon: Record<InvestigationNode['kind'], string> = {
   dml: 'DML',
   flow: 'FLW',
   exception: '!',
+};
+
+const nodeDetails: Record<string, string> = {
+  'n-001': 'Apex entry point received the request and began Account update processing.',
+  'n-002': 'USER_DEBUG|[74]|DEBUG|AccountService.validate() completed validation for account 001…7TAAS',
+  'n-005': 'EXCEPTION_THROWN|[147]|System.NullPointerException: Attempt to de-reference a null object\n\nClass.AccountService.update: line 147, column 1\nClass.AccountController.saveAccount: line 93, column 1\n\nContext:\naccount = null',
+  'n-202': 'USER_DEBUG|[74]|DEBUG|AccountService.validate() completed validation.\nVariables: isValid=true',
+  'n-206': 'FLOW_ELEMENT_ERROR|Apex Action: NotificationService.notify()\nFlowFault: Notification failed\nRecipient is missing',
+  'n-303': 'SOQL_EXECUTE_BEGIN|[41]|SELECT Id, Name FROM Account WHERE Id = :accountId\nSOQL_EXECUTE_END|[41]|Rows:1',
 };
 
 function formatDuration(value: number | undefined): string {
@@ -66,6 +76,8 @@ function App() {
   };
 
   const toggleTheme = () => setTheme((current) => current === 'dark' ? 'light' : 'dark');
+
+  const detailText = selectedNode ? (nodeDetails[selectedNode.id] ?? selectedNode.subtitle ?? activeLog.summary) : activeLog.summary;
 
   return (
     <div className="app-shell">
@@ -203,7 +215,7 @@ function App() {
               <div className="inspector-section"><div className="section-heading">Variables & values</div><div className="variable-table">
                 {selectedNode.variables.length === 0 ? <div className="muted-text">No variables captured at this node.</div> : selectedNode.variables.map((variable) => <div className="variable-row" key={`${variable.name}-${variable.type}`}><span className="variable-name">{variable.name}</span><span className="variable-type">{variable.type}</span><code>{variable.value}</code></div>)}
               </div></div>
-              <div className="inspector-section"><div className="section-heading">Log output</div><pre className="log-output">{selectedNode.debugOutput ?? selectedNode.errorDetails ?? activeLog.summary}</pre></div>
+              <div className="inspector-section"><div className="section-heading">Log output</div><pre className="log-output">{detailText}</pre></div>
             </div>}
           </section>
         </div>
