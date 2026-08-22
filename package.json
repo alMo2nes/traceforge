@@ -1,0 +1,19 @@
+{
+  "name": "traceforge",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Salesforce debug log analysis platform",
+  "type": "module",
+  "scripts": {
+    "build": "tsc -b",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "cli": "tsx apps/cli/src/index.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^24.13.3",
+    "tsx": "^4.23.11",
+    "typescript": "^5.9.3",
+    "vitest": "^3.2.7"
+  }
+}

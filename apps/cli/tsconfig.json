@@ -1,0 +1,22 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "composite": true,
+    "rootDir": "src",
+    "outDir": "dist"
+  },
+  "references": [
+    {
+      "path": "../../packages/parser-adapter"
+    },
+    {
+      "path": "../../packages/analyzer"
+    },
+    {
+      "path": "../../packages/salesforce"
+    }
+  ],
+  "include": [
+    "src/**/*.ts"
+  ]
+}

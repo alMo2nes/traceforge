@@ -1,0 +1,10 @@
+{
+  "files": [],
+  "references": [
+    { "path": "./packages/shared" },
+    { "path": "./packages/parser-adapter" },
+    { "path": "./packages/analyzer" },
+    { "path": "./packages/salesforce" },
+    { "path": "./apps/cli" }
+  ]
+}
