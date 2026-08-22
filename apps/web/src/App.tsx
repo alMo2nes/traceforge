@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type CSSProperties } from 'react';
 import { flattenNodes, logs as fixtureLogs, type InvestigationNode, type LogRecord } from './data';
-import { traceforgeApi, type DebugLogInfo, type OrgInfo, type TraceFlagResult } from './api';
+import { traceforgeApi, type DebugLogInfo, type InvestigationNodeDto, type OrgInfo, type TraceFlagResult } from './api';
 import { TraceFlagModal } from './TraceFlagModal';
 import './styles.css';
 import './layout.css';
@@ -9,6 +9,8 @@ import './integration.css';
 const nodeIcon: Record<InvestigationNode['kind'], string> = {
   transaction: 'TX', 'code-unit': 'CU', method: 'fn', soql: 'DB', dml: 'DML', flow: 'FLW', exception: '!'
 };
+
+type DisplayNode = InvestigationNode & { logOutput?: string };
 
 const nodeDetails: Record<string, string> = {
   'n-001': 'Apex entry point received the request and began Account update processing.',
@@ -44,6 +46,11 @@ function toLogRecord(log: DebugLogInfo): LogRecord {
   return { id: log.id, timestamp: node.timestamp, entryPoint, operation: log.operation ?? '—', durationMs: log.durationMs ?? 0, sizeKb: log.logLength ? Math.round(log.logLength / 1024) : 0, user: log.userName ?? log.userId ?? '—', status, summary: log.userName ? `${entryPoint} · ${log.userName}` : entryPoint, nodes: [node] };
 }
 
+function mergeInvestigation(log: LogRecord, nodes: InvestigationNodeDto[]): LogRecord {
+  const displayNodes = nodes as unknown as InvestigationNode[];
+  return { ...log, entryPoint: nodes[0]?.label ?? log.entryPoint, nodes: displayNodes };
+}
+
 function App() {
   const [query, setQuery] = useState('AccountService');
   const [orgs, setOrgs] = useState<OrgInfo[]>([]);
@@ -66,6 +73,18 @@ function App() {
 
   useEffect(() => { document.documentElement.dataset.theme = theme; window.localStorage.setItem('traceforge-theme', theme); }, [theme]);
 
+  const loadInvestigation = async (logId: string): Promise<void> => {
+    if (!selectedOrg) return;
+    try {
+      const result = await traceforgeApi.investigateLog(selectedOrg, logId);
+      setLiveLogs((current) => current ? current.map((log) => log.id === logId ? mergeInvestigation(log, result.nodes) : log) : current);
+      const first = result.nodes[0];
+      if (logId === activeLogId && first) setSelectedNodeId(first.id);
+    } catch (reason) {
+      setConnectionError(reason instanceof Error ? reason.message : String(reason));
+    }
+  };
+
   useEffect(() => {
     let cancelled = false;
     traceforgeApi.listOrgs().then((nextOrgs) => { if (!cancelled) { setOrgs(nextOrgs); if (!selectedOrg && nextOrgs[0]?.alias) setSelectedOrg(nextOrgs[0].alias); } }).catch((reason) => { if (!cancelled) setConnectionError(reason instanceof Error ? reason.message : String(reason)); });
@@ -81,8 +100,10 @@ function App() {
       if (cancelled) return;
       const mapped = records.map(toLogRecord);
       setLiveLogs(mapped); setLiveMode(true);
-      setSelectedLogIds(mapped.slice(0, Math.min(4, mapped.length)).map((log) => log.id));
+      const selected = mapped.slice(0, Math.min(4, mapped.length));
+      setSelectedLogIds(selected.map((log) => log.id));
       const first = mapped[0]; setActiveLogId(first?.id ?? ''); setSelectedNodeId(first?.nodes[0]?.id ?? '');
+      void Promise.all(selected.map((log) => loadInvestigation(log.id)));
     }).catch((reason) => { if (!cancelled) { setLiveMode(false); setConnectionError(reason instanceof Error ? reason.message : String(reason)); } }).finally(() => { if (!cancelled) setDataLoading(false); });
     return () => { cancelled = true; };
   }, [selectedOrg]);
@@ -93,7 +114,7 @@ function App() {
   const selectedNode = useMemo(() => { const node = activeLog ? flattenNodes(activeLog.nodes).find((item) => item.id === selectedNodeId) : undefined; return node ?? activeLog?.nodes[0]; }, [activeLog, selectedNodeId]);
 
   const toggleLog = (id: string) => setSelectedLogIds((current) => current.includes(id) ? current.filter((item) => item !== id) : [...current, id]);
-  const selectLog = (id: string) => { setActiveLogId(id); const first = displayLogs.find((log) => log.id === id)?.nodes[0]; setSelectedNodeId(first?.id ?? ''); };
+  const selectLog = (id: string) => { setActiveLogId(id); const first = displayLogs.find((log) => log.id === id)?.nodes[0]; setSelectedNodeId(first?.id ?? ''); if (liveMode) void loadInvestigation(id); };
   const refreshLogs = () => { if (!selectedOrg) return; setDataLoading(true); traceforgeApi.listLogs(selectedOrg).then((records) => setLiveLogs(records.map(toLogRecord))).catch((reason) => setConnectionError(reason instanceof Error ? reason.message : String(reason))).finally(() => setDataLoading(false)); };
   const toggleTheme = () => setTheme((current) => current === 'dark' ? 'light' : 'dark');
 
@@ -105,7 +126,8 @@ function App() {
   };
   useEffect(() => { window.localStorage.setItem('traceforge-inspector-height', String(inspectorHeight)); }, [inspectorHeight]);
 
-  const detailText = selectedNode ? (nodeDetails[selectedNode.id] ?? selectedNode.subtitle ?? activeLog?.summary ?? '') : activeLog?.summary ?? '';
+  const selectedNodeWithOutput = selectedNode as DisplayNode | undefined;
+  const detailText = selectedNodeWithOutput?.logOutput ?? (selectedNode ? (nodeDetails[selectedNode.id] ?? selectedNode.subtitle ?? activeLog?.summary ?? '') : activeLog?.summary ?? '');
   const handleTraceCreated = (result: TraceFlagResult) => { setTraceMessage(`Trace flag active until ${result.expirationDate ? new Date(result.expirationDate).toLocaleTimeString() : 'expiration'}.`); setTraceMessageError(false); };
 
   return (
@@ -127,7 +149,7 @@ function App() {
         </section>
 
         {traceMessage && <div className={`trace-toast ${traceMessageError ? 'error' : ''}`}>{traceMessage}</div>}
-        {connectionError && !liveMode && <div className="connection-banner">Salesforce API unavailable: {connectionError}. Showing demo logs.</div>}
+        {connectionError && <div className="connection-banner">{liveMode ? `Analysis warning: ${connectionError}` : `Salesforce API unavailable: ${connectionError}. Showing demo logs.`}</div>}
 
         <div className="content-grid" style={{ '--inspector-height': `${inspectorHeight}px` } as CSSProperties}>
           <aside className="logs-panel panel"><div className="panel-header"><div><div className="panel-title">Logs</div><div className="panel-meta">{displayLogs.length} transactions</div></div><button className="icon-btn" title="Filter" type="button">☷</button></div><div className="selection-bar"><span>{selectedLogIds.length} selected</span><button type="button" onClick={() => setSelectedLogIds(displayLogs.map((log) => log.id))}>Select all</button></div><div className="log-list">{displayLogs.map((log) => { const selected = selectedLogIds.includes(log.id); const active = log.id === activeLogId; return <button key={log.id} className={`log-card ${active ? 'active' : ''}`} onClick={() => selectLog(log.id)}><span className="check-wrap" onClick={(e) => { e.stopPropagation(); toggleLog(log.id); }}><span className={`fake-check ${selected ? 'checked' : ''}`}>{selected ? '✓' : ''}</span></span><span className="log-main"><span className="log-time">{log.timestamp}</span><span className="log-entry">{log.entryPoint}</span><span className="log-summary">{log.summary}</span><span className="log-tags"><span className={`result ${log.status.toLowerCase()}`}>{log.status}</span><span>{formatDuration(log.durationMs)}</span><span>{log.sizeKb} KB</span></span></span></button>; })}</div></aside>
