@@ -1,11 +1,6 @@
 import { correlateInvestigationEvents, decodeSemanticEvents, SalesforceLogScanner, type InvestigationNode as ScannerNode, type SemanticEvent } from '../../../packages/log-scanner/src/index.js';
 
-export interface UiVariable {
-  name: string;
-  type: string;
-  value: string;
-}
-
+export interface UiVariable { name: string; type: string; value: string; }
 export interface UiInvestigationNode {
   id: string;
   kind: 'transaction' | 'code-unit' | 'method' | 'soql' | 'dml' | 'flow' | 'exception';
@@ -32,10 +27,9 @@ function kindFor(node: ScannerNode): UiInvestigationNode['kind'] | undefined {
   }
 }
 
-function formatTimestamp(timestamp?: number): string {
+function formatTimestamp(timestamp: number | undefined, baseTimestamp: number): string {
   if (timestamp === undefined) return '—';
-  const base = new Date(timestamp / 1000);
-  return base.toLocaleTimeString([], { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit', fractionalSecondDigits: 3 });
+  return `+${((timestamp - baseTimestamp) / 1_000_000).toFixed(3)} ms`;
 }
 
 function durationMs(node: ScannerNode): number | undefined {
@@ -71,16 +65,14 @@ function debugOutputFromChildren(node: ScannerNode): string[] {
   return output;
 }
 
-function uiNode(node: ScannerNode, root = false): UiInvestigationNode | undefined {
+function uiNode(node: ScannerNode, baseTimestamp: number): UiInvestigationNode | undefined {
   const kind = kindFor(node);
   if (!kind) return undefined;
 
   const children = node.children
     .map((child) => {
-      if (child.type === 'system' || child.type === 'statement' || child.type === 'variable' || child.type === 'limit' || child.type === 'savepoint') {
-        return undefined;
-      }
-      return uiNode(child);
+      if (child.type === 'system' || child.type === 'statement' || child.type === 'variable' || child.type === 'limit' || child.type === 'savepoint') return undefined;
+      return uiNode(child, baseTimestamp);
     })
     .filter((child): child is UiInvestigationNode => child !== undefined);
 
@@ -94,7 +86,7 @@ function uiNode(node: ScannerNode, root = false): UiInvestigationNode | undefine
     label: node.name ?? kind,
     subtitle: node.type === 'code-unit' ? 'Salesforce code unit' : node.type === 'method' ? 'Method invocation' : node.type.toUpperCase(),
     line: node.line,
-    timestamp: formatTimestamp(node.startTimestamp),
+    timestamp: formatTimestamp(node.startTimestamp, baseTimestamp),
     durationMs: durationMs(node),
     status: exception ? 'error' : 'ok',
     variables,
@@ -108,6 +100,6 @@ export function analyzeLog(content: string): UiInvestigationNode[] {
   const raw = scanner.scan(content);
   const semantic = decodeSemanticEvents(raw.events);
   return correlateInvestigationEvents(semantic)
-    .map((root) => uiNode(root, true))
+    .map((root) => root.startTimestamp === undefined ? undefined : uiNode(root, root.startTimestamp))
     .filter((node): node is UiInvestigationNode => node !== undefined);
 }
