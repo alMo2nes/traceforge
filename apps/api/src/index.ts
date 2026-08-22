@@ -1,6 +1,7 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { DebugLogService } from '../../../packages/salesforce/src/DebugLogService.js';
 import { TraceFlagService } from '../../../packages/salesforce/src/TraceFlagService.js';
+import { analyzeLog } from './investigation.js';
 
 const port = Number(process.env.TRACEFORGE_API_PORT ?? 3001);
 const debugLogs = new DebugLogService();
@@ -57,6 +58,13 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
       const levels = await traceFlags.listDebugLevels(org);
       const finest = levels.some((level) => level.developerName.toUpperCase() === 'FINEST' || level.masterLabel.toUpperCase() === 'FINEST');
       return json(res, 200, { levels, finestAvailable: finest, finestAutoCreate: !finest });
+    }
+
+    if (req.method === 'GET' && parts[0] === 'api' && parts[1] === 'orgs' && parts[3] === 'logs' && parts.length === 6 && parts[5] === 'investigation') {
+      const org = decodeURIComponent(parts[2]);
+      const logId = decodeURIComponent(parts[4]);
+      const content = await debugLogs.fetchLog(org, logId);
+      return json(res, 200, { nodes: analyzeLog(content) });
     }
 
     if (req.method === 'GET' && parts[0] === 'api' && parts[1] === 'orgs' && parts[3] === 'logs' && parts.length === 5) {
