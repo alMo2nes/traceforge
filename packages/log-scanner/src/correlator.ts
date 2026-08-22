@@ -37,7 +37,8 @@ export function correlateInvestigationEvents(events: SemanticEvent[]): Investiga
     switch (event.type) {
       case 'code-unit-start': {
         const node = nodeFrom(event, 'code-unit', event.name);
-        attach(node, codeUnits.length > 0 ? codeUnits[codeUnits.length - 1] : undefined, roots);
+        const parent = openDml.at(-1) ?? methods.at(-1) ?? codeUnits.at(-1);
+        attach(node, parent, roots);
         codeUnits.push(node);
         break;
       }
@@ -52,7 +53,7 @@ export function correlateInvestigationEvents(events: SemanticEvent[]): Investiga
       }
       case 'method-entry': {
         const node = nodeFrom(event, 'method', event.name);
-        const parent = methods.at(-1) ?? codeUnits.at(-1);
+        const parent = methods.at(-1) ?? codeUnits.at(-1) ?? openDml.at(-1);
         attach(node, parent, roots);
         methods.push(node);
         break;
