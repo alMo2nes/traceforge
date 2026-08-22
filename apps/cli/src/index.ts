@@ -1,9 +1,9 @@
 import { readFile } from 'node:fs/promises';
 
 import { LogAnalyzer, type ExecutionTreeNode } from '@traceforge/analyzer';
+import type { LogEvent } from '@traceforge/shared';
 import { SalesforceLogParser } from '@traceforge/parser-adapter';
 import { DebugLogService } from '@traceforge/salesforce';
-import type { LogEvent } from '@traceforge/shared';
 import { runLogsCommand } from './logDiscovery.js';
 
 async function main(): Promise<void> {
@@ -34,10 +34,6 @@ async function main(): Promise<void> {
 
     case 'analyze':
       await analyzeFile(args[0]);
-      return;
-
-    case 'inspect':
-      await inspectFile(args[0]);
       return;
 
     default:
@@ -92,15 +88,6 @@ async function analyzeFile(file: string | undefined): Promise<void> {
   analyze(await readFile(file, 'utf8'), file);
 }
 
-async function inspectFile(file: string | undefined): Promise<void> {
-  if (!file) {
-    throw new Error('Usage: pnpm cli inspect <path-to-salesforce-log>');
-  }
-
-  console.log(`Reading Salesforce log: ${file}`);
-  inspect(await readFile(file, 'utf8'), file);
-}
-
 function analyze(content: string, source: string): void {
   const result = new SalesforceLogParser().parse(content, source);
   const analyzer = new LogAnalyzer(result.events);
@@ -127,70 +114,48 @@ function analyze(content: string, source: string): void {
 
 function inspect(content: string, source: string): void {
   const result = new SalesforceLogParser().parse(content, source);
-  const events = result.events;
-  const byType = new Map<string, number>();
+  const counts = new Map<string, number>();
 
-  for (const event of events) {
+  for (const event of result.events) {
     const key = event.rawType ?? event.type;
-    byType.set(key, (byType.get(key) ?? 0) + 1);
+    counts.set(key, (counts.get(key) ?? 0) + 1);
   }
 
   console.log('\n=== PARSER EVENT INVENTORY ===\n');
-  console.log(`Source: ${source}`);
-  console.log(`Parsed events: ${events.length}`);
-
-  console.log('\nEvent types:\n');
-  for (const [type, count] of [...byType.entries()].sort((a, b) => a[0].localeCompare(b[0]))) {
+  console.log(`Total parsed events: ${result.events.length}`);
+  for (const [type, count] of [...counts.entries()].sort(([a], [b]) => a.localeCompare(b))) {
     console.log(`${String(count).padStart(4)}  ${type}`);
   }
 
   console.log('\n=== EVENTS ===\n');
-  console.log('ID  TYPE  RAW TYPE  PARENT  LINE  START  END  DURATION  NAME');
-  console.log('-'.repeat(120));
-
-  for (const event of events) {
-    console.log(formatInspectionEvent(event));
-  }
+  result.events.forEach((event, index) => printEvent(event, index + 1));
 
   console.log('\n=== EVENT HIERARCHY ===\n');
-  const analyzer = new LogAnalyzer(events);
-  printInspectionTree(analyzer.getExecutionTree());
+  const analyzer = new LogAnalyzer(result.events);
+  printInvestigationTree(analyzer.getExecutionTree());
 }
 
-function formatInspectionEvent(event: LogEvent): string {
-  const id = event.id.padEnd(18);
-  const type = event.type.padEnd(10);
-  const rawType = (event.rawType ?? '-').padEnd(28);
-  const parent = (event.parentId ?? '-').padEnd(18);
-  const line = String(event.lineNumber ?? '-').padEnd(6);
-  const start = formatNumber(event.timeStart).padEnd(10);
-  const end = formatNumber(event.timeEnd).padEnd(10);
-  const duration = formatNumber(event.durationMs).padEnd(10);
-  const name = event.name ?? '-';
-
-  return `${id} ${type} ${rawType} ${parent} ${line} ${start} ${end} ${duration} ${name}`;
+function printEvent(event: LogEvent, index: number): void {
+  console.log(`#${String(index).padStart(3)} ${event.id}`);
+  console.log(`  type:     ${event.type}`);
+  console.log(`  rawType:  ${event.rawType ?? '-'}`);
+  console.log(`  name:     ${event.name ?? '-'}`);
+  console.log(`  parentId: ${event.parentId ?? '-'}`);
+  console.log(`  line:     ${event.lineNumber ?? '-'}`);
+  console.log(`  start:    ${event.timeStart ?? '-'}`);
+  console.log(`  end:      ${event.timeEnd ?? '-'}`);
+  console.log(`  duration: ${formatDuration(event.durationMs)}`);
+  console.log(`  source:   ${event.source ?? '-'}`);
+  console.log('');
 }
 
-function formatNumber(value: number | undefined): string {
-  return value === undefined ? '-' : value.toFixed(3);
-}
-
-function printInspectionTree(nodes: ExecutionTreeNode[], prefix = ''): void {
+function printInvestigationTree(nodes: ExecutionTreeNode[], prefix = ''): void {
   nodes.forEach((node, index) => {
     const isLast = index === nodes.length - 1;
     const event = node.event;
-    const marker = isLast ? '└── ' : '├── ';
-    const rawType = event.rawType && event.rawType !== event.type
-      ? ` [${event.type} / ${event.rawType}]`
-      : ` [${event.type}]`;
-    const details = [
-      event.lineNumber === undefined ? undefined : `line ${event.lineNumber}`,
-      event.durationMs === undefined ? undefined : formatDuration(event.durationMs)
-    ].filter(Boolean).join(', ');
-    const suffix = details ? ` (${details})` : '';
-
-    console.log(`${prefix}${marker}${event.name ?? event.type}${rawType}${suffix}`);
-    printInspectionTree(node.children, `${prefix}${isLast ? '    ' : '│   '}`);
+    const label = `${event.name ?? event.type} [${event.type}/${event.rawType ?? event.type}]`;
+    console.log(`${prefix}${isLast ? '└── ' : '├── '}${label}`);
+    printInvestigationTree(node.children, `${prefix}${isLast ? '    ' : '│   '}`);
   });
 }
 
@@ -297,7 +262,6 @@ function printUsage(): void {
   console.log('  pnpm cli analyze-log <org-alias-or-username> <log-id>');
   console.log('  pnpm cli inspect-log <org-alias-or-username> <log-id>');
   console.log('  pnpm cli analyze <path-to-salesforce-log>');
-  console.log('  pnpm cli inspect <path-to-salesforce-log>');
   console.log('  pnpm cli <path-to-salesforce-log>');
 }
 
