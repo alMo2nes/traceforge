@@ -16,9 +16,13 @@ export interface RawLogScanResult {
 /**
  * Low-level Salesforce debug log scanner.
  *
- * This scanner intentionally does not interpret Salesforce semantics. Its job
- * is to preserve every line that matches the timestamp|EVENT|details shape so
- * higher-level investigation code can decide what each event means.
+ * Salesforce event lines normally look like:
+ *
+ *   12:34:56.0 (123456)|USER_DEBUG|[10]|DEBUG|message
+ *
+ * The value in parentheses is the high-resolution elapsed timestamp. Some
+ * synthetic/test inputs use a plain numeric timestamp instead. The scanner
+ * accepts both forms and preserves everything after the event type verbatim.
  */
 export class SalesforceLogScanner {
   scan(content: string): RawLogScanResult {
@@ -51,29 +55,31 @@ export class SalesforceLogScanner {
   }
 
   private parseLine(rawLine: string, lineNumber: number): RawLogEvent | undefined {
-    const firstSeparator = rawLine.indexOf('|');
-    if (firstSeparator <= 0) {
+    const separator = rawLine.indexOf('|');
+    if (separator <= 0) {
       return undefined;
     }
 
-    const timestampText = rawLine.slice(0, firstSeparator).trim();
-    const timestamp = Number(timestampText);
-    if (!Number.isFinite(timestamp)) {
+    const timestampText = rawLine.slice(0, separator).trim();
+    const timestamp = this.parseTimestamp(timestampText);
+    if (timestamp === undefined) {
       return undefined;
     }
 
-    const remainder = rawLine.slice(firstSeparator + 1);
-    const secondSeparator = remainder.indexOf('|');
-    if (secondSeparator <= 0) {
+    const remainder = rawLine.slice(separator + 1);
+    const nextSeparator = remainder.indexOf('|');
+    const eventType = (nextSeparator < 0
+      ? remainder
+      : remainder.slice(0, nextSeparator)
+    ).trim();
+
+    if (!eventType || !/^[A-Z][A-Z0-9_]*$/.test(eventType)) {
       return undefined;
     }
 
-    const eventType = remainder.slice(0, secondSeparator).trim();
-    if (!eventType) {
-      return undefined;
-    }
-
-    const details = remainder.slice(secondSeparator + 1);
+    const details = nextSeparator < 0
+      ? undefined
+      : remainder.slice(nextSeparator + 1);
 
     return {
       id: `raw-${lineNumber}`,
@@ -83,5 +89,19 @@ export class SalesforceLogScanner {
       lineNumber,
       rawLine
     };
+  }
+
+  private parseTimestamp(value: string): number | undefined {
+    if (/^\d+(?:\.\d+)?$/.test(value)) {
+      return Number(value);
+    }
+
+    const highResolutionMatch = value.match(/\((\d+)\)$/);
+    if (highResolutionMatch) {
+      const timestamp = Number(highResolutionMatch[1]);
+      return Number.isFinite(timestamp) ? timestamp : undefined;
+    }
+
+    return undefined;
   }
 }
