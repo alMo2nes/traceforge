@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { flattenNodes, logs, type InvestigationNode, type LogRecord } from './data';
 import './styles.css';
 
@@ -32,6 +32,15 @@ function App() {
   const [activeLogId, setActiveLogId] = useState('07L-demo-001');
   const [selectedNodeId, setSelectedNodeId] = useState('n-001');
   const [showSystem, setShowSystem] = useState(false);
+  const [theme, setTheme] = useState<'dark' | 'light'>(() => {
+    const stored = window.localStorage.getItem('traceforge-theme');
+    return stored === 'light' ? 'light' : 'dark';
+  });
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme;
+    window.localStorage.setItem('traceforge-theme', theme);
+  }, [theme]);
 
   const activeLog = logs.find((log) => log.id === activeLogId) ?? logs[0];
   const selectedLogs = logs.filter((log) => selectedLogIds.includes(log.id));
@@ -56,6 +65,8 @@ function App() {
     setSelectedNodeId(first?.id ?? '');
   };
 
+  const toggleTheme = () => setTheme((current) => current === 'dark' ? 'light' : 'dark');
+
   return (
     <div className="app-shell">
       <header className="topbar">
@@ -70,6 +81,16 @@ function App() {
           <span className="pill">mbk3</span>
           <span className="pill muted">moones@example.com</span>
           <span className="status-dot"><span /> Live session</span>
+          <button
+            className="theme-btn"
+            type="button"
+            onClick={toggleTheme}
+            aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}
+            title={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}
+          >
+            <span aria-hidden="true">{theme === 'dark' ? '☀' : '☾'}</span>
+            <span>{theme === 'dark' ? 'Light' : 'Dark'}</span>
+          </button>
         </div>
       </header>
 
