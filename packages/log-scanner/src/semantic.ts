@@ -179,8 +179,9 @@ function splitFields(details: string | undefined): string[] {
 }
 
 function numericField(value: string | undefined): number | undefined {
-  if (!value || !/^\d+$/.test(value)) return undefined;
-  return Number(value);
+  if (!value) return undefined;
+  const normalized = value.replace(/^\[(\d+)\]$/, '$1');
+  return /^\d+$/.test(normalized) ? Number(normalized) : undefined;
 }
 
 function keyValueDetails(fields: string[]): Record<string, string> {
