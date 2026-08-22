@@ -34,6 +34,26 @@ export interface DebugLogInfo {
   logLength?: number;
 }
 
+export interface InvestigationVariable {
+  name: string;
+  type: string;
+  value: string;
+}
+
+export interface InvestigationNodeDto {
+  id: string;
+  kind: 'transaction' | 'code-unit' | 'method' | 'soql' | 'dml' | 'flow' | 'exception';
+  label: string;
+  subtitle?: string;
+  line?: number;
+  timestamp: string;
+  durationMs?: number;
+  status?: 'ok' | 'error' | 'info';
+  variables: InvestigationVariable[];
+  logOutput?: string;
+  children: InvestigationNodeDto[];
+}
+
 export interface TraceFlagResult {
   id: string;
   tracedEntityId: string;
@@ -63,6 +83,7 @@ export const traceforgeApi = {
   listDebugLevels: (org: string) => request<DebugLevelResponse>(`/api/orgs/${encodeURIComponent(org)}/debug-levels`),
   listLogs: (org: string) => request<DebugLogInfo[]>(`/api/orgs/${encodeURIComponent(org)}/logs`),
   fetchLog: (org: string, logId: string) => request<{ content: string }>(`/api/orgs/${encodeURIComponent(org)}/logs/${encodeURIComponent(logId)}`),
+  investigateLog: (org: string, logId: string) => request<{ nodes: InvestigationNodeDto[] }>(`/api/orgs/${encodeURIComponent(org)}/logs/${encodeURIComponent(logId)}/investigation`),
   createTraceFlag: (org: string, payload: { userId: string; debugLevelId?: string; durationMinutes: number }) =>
     request<TraceFlagResult>(`/api/orgs/${encodeURIComponent(org)}/trace-flags`, {
       method: 'POST',
