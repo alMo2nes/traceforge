@@ -8,6 +8,7 @@
   },
   "dependencies": {
     "@traceforge/analyzer": "workspace:*",
+    "@traceforge/log-scanner": "workspace:*",
     "@traceforge/parser-adapter": "workspace:*",
     "@traceforge/salesforce": "workspace:*",
     "@traceforge/shared": "workspace:*"
