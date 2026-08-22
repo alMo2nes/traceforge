@@ -46,6 +46,10 @@ function App() {
     const stored = window.localStorage.getItem('traceforge-theme');
     return stored === 'light' ? 'light' : 'dark';
   });
+  const [inspectorHeight, setInspectorHeight] = useState(() => {
+    const stored = Number(window.localStorage.getItem('traceforge-inspector-height'));
+    return Number.isFinite(stored) && stored >= 180 && stored <= 620 ? stored : 280;
+  });
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -76,6 +80,32 @@ function App() {
   };
 
   const toggleTheme = () => setTheme((current) => current === 'dark' ? 'light' : 'dark');
+
+  const resizeInspector = (event: React.PointerEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    const startY = event.clientY;
+    const startHeight = inspectorHeight;
+    const onMove = (moveEvent: PointerEvent) => {
+      const delta = startY - moveEvent.clientY;
+      const nextHeight = Math.max(180, Math.min(620, startHeight + delta));
+      setInspectorHeight(nextHeight);
+    };
+    const onUp = () => {
+      window.localStorage.setItem('traceforge-inspector-height', String(inspectorHeight));
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    };
+    document.body.style.cursor = 'row-resize';
+    document.body.style.userSelect = 'none';
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp, { once: true });
+  };
+
+  useEffect(() => {
+    window.localStorage.setItem('traceforge-inspector-height', String(inspectorHeight));
+  }, [inspectorHeight]);
 
   const detailText = selectedNode ? (nodeDetails[selectedNode.id] ?? selectedNode.subtitle ?? activeLog.summary) : activeLog.summary;
 
@@ -125,7 +155,7 @@ function App() {
           </div>
         </section>
 
-        <div className="content-grid">
+        <div className="content-grid" style={{ '--inspector-height': `${inspectorHeight}px` } as React.CSSProperties}>
           <aside className="logs-panel panel">
             <div className="panel-header">
               <div>
@@ -196,6 +226,10 @@ function App() {
             </div>
           </section>
 
+          <div className="inspector-resizer" role="separator" aria-orientation="horizontal" aria-label="Resize inspector" onPointerDown={resizeInspector}>
+            <span />
+          </div>
+
           <section className="inspector-panel panel">
             <div className="panel-header inspector-header">
               <div>
@@ -215,7 +249,7 @@ function App() {
               <div className="inspector-section"><div className="section-heading">Variables & values</div><div className="variable-table">
                 {selectedNode.variables.length === 0 ? <div className="muted-text">No variables captured at this node.</div> : selectedNode.variables.map((variable) => <div className="variable-row" key={`${variable.name}-${variable.type}`}><span className="variable-name">{variable.name}</span><span className="variable-type">{variable.type}</span><code>{variable.value}</code></div>)}
               </div></div>
-              <div className="inspector-section"><div className="section-heading">Log output</div><pre className="log-output">{detailText}</pre></div>
+              <div className="inspector-section log-output-section"><div className="section-heading">Log output</div><pre className="log-output">{detailText}</pre></div>
             </div>}
           </section>
         </div>
