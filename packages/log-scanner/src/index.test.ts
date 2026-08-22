@@ -27,6 +27,31 @@ describe('SalesforceLogScanner', () => {
     expect(result.ignoredLineCount).toBe(1);
   });
 
+  it('parses Salesforce high-resolution timestamps in parentheses', () => {
+    const content = [
+      '00:29:50.54 (54115287)|EXECUTION_STARTED',
+      '00:29:50.55 (54126731)|USER_DEBUG|[1]|DEBUG|starting request',
+      '00:29:50.56 (54138882)|EXCEPTION_THROWN|[42]|System.MathException: Divide by 0'
+    ].join('\n');
+
+    const result = new SalesforceLogScanner().scan(content);
+
+    expect(result.events).toHaveLength(3);
+    expect(result.events[0]).toMatchObject({
+      timestamp: 54115287,
+      eventType: 'EXECUTION_STARTED'
+    });
+    expect(result.events[1]).toMatchObject({
+      timestamp: 54126731,
+      eventType: 'USER_DEBUG',
+      details: '[1]|DEBUG|starting request'
+    });
+    expect(result.events[2]).toMatchObject({
+      timestamp: 54138882,
+      eventType: 'EXCEPTION_THROWN'
+    });
+  });
+
   it('counts event types without collapsing unknown Salesforce events', () => {
     const content = [
       '1|FLOW_START_INTERVIEW_BEGIN|flow',
