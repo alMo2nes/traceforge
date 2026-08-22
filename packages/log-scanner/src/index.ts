@@ -1,3 +1,5 @@
+import { parseSalesforceLogSummaries, type SalesforceLogSummaries } from './summaries.js';
+
 export interface RawLogEvent {
   id: string;
   timestamp: number;
@@ -11,6 +13,7 @@ export interface RawLogScanResult {
   events: RawLogEvent[];
   eventTypeCounts: Record<string, number>;
   ignoredLineCount: number;
+  summaries: SalesforceLogSummaries;
 }
 
 /**
@@ -50,7 +53,8 @@ export class SalesforceLogScanner {
     return {
       events,
       eventTypeCounts,
-      ignoredLineCount
+      ignoredLineCount,
+      summaries: parseSalesforceLogSummaries(content)
     };
   }
 
@@ -108,3 +112,4 @@ export class SalesforceLogScanner {
 
 export * from './semantic.js';
 export * from './correlator.js';
+export * from './summaries.js';
