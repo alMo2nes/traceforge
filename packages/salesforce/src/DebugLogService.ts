@@ -91,50 +91,9 @@ export class DebugLogService {
 
   async fetchLog(org: string | undefined, logId: string): Promise<string> {
     const targetOrgArgs = org ? ['--target-org', org] : [];
-    const output = await this.cli.run([
-      'apex', 'get', 'log', ...targetOrgArgs, '--log-id', logId, '--json'
+    return this.cli.run([
+      'apex', 'get', 'log', ...targetOrgArgs, '--log-id', logId
     ]);
-
-    return this.extractLogContent(output);
-  }
-
-  private extractLogContent(output: string): string {
-    let value: unknown;
-
-    try {
-      value = JSON.parse(output);
-    } catch {
-      // Older CLI releases return raw log content despite accepting --json.
-      return output;
-    }
-
-    if (!this.isObject(value) || !('result' in value)) {
-      throw new SalesforceCliError('Salesforce CLI returned an invalid debug log response.');
-    }
-
-    const response = value as unknown as SalesforceCliEnvelope;
-
-    if (typeof response.result === 'string') {
-      return response.result;
-    }
-
-    if (Array.isArray(response.result)) {
-      const first = response.result[0];
-      if (this.isObject(first) && typeof first.log === 'string') {
-        return first.log;
-      }
-    }
-
-    if (this.isObject(response.result)) {
-      for (const property of ['log', 'content', 'output']) {
-        const content = response.result[property];
-        if (typeof content === 'string') {
-          return content;
-        }
-      }
-    }
-
-    throw new SalesforceCliError('Salesforce CLI returned an invalid debug log response.');
   }
 
   private parseJson(output: string, operation: string): SalesforceCliEnvelope {
