@@ -200,6 +200,11 @@ export class TraceFlagService {
     if (tooling) args.push('--use-tooling-api');
     const output = await this.cli.run(args);
     const response = this.parseJson(output, 'query Salesforce');
+
+    if (this.isObject(response.result) && Array.isArray(response.result.records)) {
+      return response.result.records;
+    }
+
     return response.result;
   }
 
