@@ -1,7 +1,12 @@
 import { readFile } from 'node:fs/promises';
 
 import { LogAnalyzer, type ExecutionTreeNode } from '@traceforge/analyzer';
-import { SalesforceLogScanner, type RawLogEvent } from '@traceforge/log-scanner';
+import {
+  SalesforceLogScanner,
+  decodeSemanticEvents,
+  type RawLogEvent,
+  type SemanticEvent
+} from '@traceforge/log-scanner';
 import type { LogEvent } from '@traceforge/shared';
 import { SalesforceLogParser } from '@traceforge/parser-adapter';
 import { DebugLogService } from '@traceforge/salesforce';
@@ -114,6 +119,7 @@ function analyze(content: string, source: string): void {
 
 function inspect(content: string, source: string): void {
   const raw = new SalesforceLogScanner().scan(content);
+  const semantic = decodeSemanticEvents(raw.events);
   const parsed = new SalesforceLogParser().parse(content, source);
   const counts = new Map<string, number>();
 
@@ -131,6 +137,7 @@ function inspect(content: string, source: string): void {
   console.log(`Raw parsed lines: ${raw.events.length}`);
   console.log(`Ignored non-event lines: ${raw.ignoredLineCount}`);
   console.log(`Structured parser events: ${parsed.events.length}`);
+  console.log(`Semantic investigation events: ${semantic.length}`);
   console.log(`Raw / structured event ratio: ${parsed.events.length === 0 ? 'n/a' : `${(raw.events.length / parsed.events.length).toFixed(1)}x`}`);
 
   console.log('\n=== RAW EVENT TYPE INVENTORY ===\n');
@@ -147,8 +154,21 @@ function inspect(content: string, source: string): void {
     }
   }
 
-  console.log('\n=== RAW EVENTS ===\n');
-  raw.events.forEach((event, index) => printRawEvent(event, index + 1));
+  console.log('\n=== SEMANTIC EVENT INVENTORY ===\n');
+  const semanticCounts = new Map<string, number>();
+  for (const event of semantic) {
+    semanticCounts.set(event.type, (semanticCounts.get(event.type) ?? 0) + 1);
+  }
+  for (const [type, count] of [...semanticCounts.entries()].sort(([a], [b]) => a.localeCompare(b))) {
+    console.log(`${String(count).padStart(6)}  ${type}`);
+  }
+
+  console.log('\n=== KEY SEMANTIC EVENTS ===\n');
+  for (const event of semantic) {
+    if (isKeySemanticEvent(event)) {
+      printSemanticEvent(event);
+    }
+  }
 
   console.log('\n=== STRUCTURED PARSER EVENT INVENTORY ===\n');
   for (const [type, count] of [...counts.entries()].sort(([a], [b]) => a.localeCompare(b))) {
@@ -161,6 +181,33 @@ function inspect(content: string, source: string): void {
   console.log('\n=== STRUCTURED EVENT HIERARCHY ===\n');
   const analyzer = new LogAnalyzer(parsed.events);
   printInvestigationTree(analyzer.getExecutionTree());
+}
+
+function isKeySemanticEvent(event: SemanticEvent): boolean {
+  return event.type === 'code-unit-start'
+    || event.type === 'code-unit-finish'
+    || event.type === 'method-entry'
+    || event.type === 'method-exit'
+    || event.type === 'variable-scope'
+    || event.type === 'variable-assignment'
+    || event.type === 'user-debug'
+    || event.type === 'soql-begin'
+    || event.type === 'soql-end'
+    || event.type === 'soql-explain'
+    || event.type === 'dml-begin'
+    || event.type === 'dml-end'
+    || event.type === 'exception'
+    || event.type === 'savepoint-set'
+    || event.type === 'savepoint-rollback';
+}
+
+function printSemanticEvent(event: SemanticEvent): void {
+  const line = event.line === undefined ? '-' : String(event.line);
+  const primary = event.name ?? event.value ?? '';
+  console.log(`# ${event.lineNumber}  ${event.type.padEnd(24)} line=${line} ${primary}`);
+  if (event.details && Object.keys(event.details).length > 0) {
+    console.log(`  ${JSON.stringify(event.details)}`);
+  }
 }
 
 function printRawEvent(event: RawLogEvent, index: number): void {
