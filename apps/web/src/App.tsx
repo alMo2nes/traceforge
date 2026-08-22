@@ -9,7 +9,7 @@ const nodeIcon: Record<InvestigationNode['kind'], string> = {
   soql: 'DB',
   dml: 'DML',
   flow: 'FLW',
-  exception: '!'
+  exception: '!',
 };
 
 function formatDuration(value: number | undefined): string {
@@ -21,8 +21,8 @@ function containsQuery(log: LogRecord, query: string): InvestigationNode[] {
   const needle = query.trim().toLowerCase();
   return flattenNodes(log.nodes).filter((node) =>
     [node.label, node.subtitle, node.variables.map((v) => `${v.name} ${v.value}`).join(' ')].some((value) =>
-      value?.toLowerCase().includes(needle)
-    )
+      value?.toLowerCase().includes(needle),
+    ),
   );
 }
 
@@ -47,7 +47,7 @@ function App() {
 
   const matches = useMemo(
     () => selectedLogs.flatMap((log) => containsQuery(log, query).map((node) => ({ log, node }))),
-    [selectedLogs, query]
+    [selectedLogs, query],
   );
 
   const selectedNode = useMemo(() => {
@@ -184,11 +184,11 @@ function App() {
             </div>
           </section>
 
-          <aside className="inspector-panel panel">
-            <div className="panel-header">
+          <section className="inspector-panel panel">
+            <div className="panel-header inspector-header">
               <div>
                 <div className="panel-title">Inspector</div>
-                <div className="panel-meta">Selected node</div>
+                <div className="panel-meta">Selected node · variables, exception, or debug output</div>
               </div>
               {selectedNode?.status === 'error' && <span className="error-badge">Error</span>}
             </div>
@@ -203,9 +203,9 @@ function App() {
               <div className="inspector-section"><div className="section-heading">Variables & values</div><div className="variable-table">
                 {selectedNode.variables.length === 0 ? <div className="muted-text">No variables captured at this node.</div> : selectedNode.variables.map((variable) => <div className="variable-row" key={`${variable.name}-${variable.type}`}><span className="variable-name">{variable.name}</span><span className="variable-type">{variable.type}</span><code>{variable.value}</code></div>)}
               </div></div>
-              <div className="inspector-section"><div className="section-heading">Context</div><div className="context-box">{activeLog.summary}</div></div>
+              <div className="inspector-section"><div className="section-heading">Log output</div><pre className="log-output">{selectedNode.debugOutput ?? selectedNode.errorDetails ?? activeLog.summary}</pre></div>
             </div>}
-          </aside>
+          </section>
         </div>
       </main>
     </div>
@@ -215,7 +215,7 @@ function App() {
 function TreeNode({ node, selectedNodeId, onSelect, depth, showSystem }: { node: InvestigationNode; selectedNodeId: string; onSelect: (id: string) => void; depth: number; showSystem: boolean }) {
   return (
     <div className="tree-node-wrap">
-      <button className={`tree-node ${selectedNodeId === node.id ? 'selected' : ''} ${node.status === 'error' ? 'error' : ''}`} style={{ paddingLeft: `${14 + depth * 24}px` }} onClick={() => onSelect(node.id)}>
+      <button className={`tree-node ${selectedNodeId === node.id ? 'selected' : ''} ${node.status === 'error' ? 'error' : ''}`} style={{ paddingLeft: `${10 + depth * 20}px` }} onClick={() => onSelect(node.id)}>
         <span className={`chevron ${node.children.length ? '' : 'empty'}`}>{node.children.length ? '▾' : '·'}</span>
         <span className={`node-icon ${node.kind}`}>{nodeIcon[node.kind]}</span>
         <span className="tree-label"><span>{node.label}</span><small>{node.subtitle}</small></span>
