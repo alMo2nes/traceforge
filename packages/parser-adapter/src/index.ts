@@ -10,24 +10,19 @@ import type {
 } from '@traceforge/shared';
 
 export interface TraceForgeParsedLog
-    extends Omit<ParsedLog, 'events'> {
+  extends Omit<ParsedLog, 'events'> {
   events: LogEvent[];
 }
 
 export class SalesforceLogParser {
   private readonly parser = new ApexLogParser();
 
-  parse(
-      content: string,
-      source = 'unknown'
-  ): TraceForgeParsedLog {
+  parse(content: string, source = 'unknown'): TraceForgeParsedLog {
     const result = this.parser.parse(content, source);
 
     return {
       ...result,
-      events: result.events.map((event) =>
-          this.toLogEvent(event)
-      )
+      events: result.events.map((event) => this.toLogEvent(event))
     };
   }
 
@@ -36,6 +31,7 @@ export class SalesforceLogParser {
       id: event.id,
       parentId: event.parentId,
       type: this.mapEventType(event.type),
+      rawType: event.type,
       name: event.name,
       lineNumber: event.lineNumber,
       durationMs: event.durationMs,
@@ -68,6 +64,18 @@ export class SalesforceLogParser {
 
       case 'LIMIT':
         return 'LIMIT';
+
+      case 'EXCEPTION_THROWN':
+      case 'FATAL_ERROR':
+      case 'EXCEPTION':
+        return 'EXCEPTION';
+
+      case 'SYSTEM_METHOD_ENTRY':
+      case 'SYSTEM_METHOD_EXIT':
+      case 'SYSTEM_CONSTRUCTOR_ENTRY':
+      case 'SYSTEM_CONSTRUCTOR_EXIT':
+      case 'USER_DEBUG':
+        return 'SYSTEM';
 
       default:
         return 'OTHER';
