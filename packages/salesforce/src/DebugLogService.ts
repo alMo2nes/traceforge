@@ -51,14 +51,10 @@ export class DebugLogService {
 
     const orgs = new Map<string, SalesforceOrg>();
     for (const group of Object.values(response.result)) {
-      if (!Array.isArray(group)) {
-        continue;
-      }
+      if (!Array.isArray(group)) continue;
 
       for (const candidate of group) {
-        if (!this.isObject(candidate) || typeof candidate.username !== 'string') {
-          continue;
-        }
+        if (!this.isObject(candidate) || typeof candidate.username !== 'string') continue;
 
         const alias = typeof candidate.alias === 'string' ? candidate.alias : candidate.username;
         orgs.set(candidate.username, {
@@ -91,19 +87,47 @@ export class DebugLogService {
 
   async fetchLog(org: string | undefined, logId: string): Promise<string> {
     const targetOrgArgs = org ? ['--target-org', org] : [];
-    return this.cli.run([
+    const output = await this.cli.run([
       'apex', 'get', 'log', ...targetOrgArgs, '--log-id', logId
     ]);
+
+    return this.extractLogContent(output);
+  }
+
+  private extractLogContent(output: string): string {
+    try {
+      const value: unknown = JSON.parse(output);
+
+      if (this.isObject(value) && 'result' in value) {
+        const response = value as unknown as SalesforceCliEnvelope;
+
+        if (typeof response.result === 'string') return response.result;
+
+        if (Array.isArray(response.result)) {
+          const first = response.result[0];
+          if (this.isObject(first) && typeof first.log === 'string') return first.log;
+        }
+
+        if (this.isObject(response.result)) {
+          for (const property of ['log', 'content', 'output']) {
+            const content = response.result[property];
+            if (typeof content === 'string') return content;
+          }
+        }
+      }
+    } catch {
+      // The Salesforce CLI normally returns the log body directly.
+    }
+
+    return output;
   }
 
   private parseJson(output: string, operation: string): SalesforceCliEnvelope {
     try {
       const value: unknown = JSON.parse(output);
-
       if (!this.isObject(value) || !('result' in value)) {
         throw new Error('Missing result property');
       }
-
       return value as unknown as SalesforceCliEnvelope;
     } catch (error) {
       throw new SalesforceCliError(
@@ -114,9 +138,7 @@ export class DebugLogService {
   }
 
   private toDebugLog(value: unknown): DebugLogInfo | undefined {
-    if (!this.isObject(value) || typeof value.Id !== 'string') {
-      return undefined;
-    }
+    if (!this.isObject(value) || typeof value.Id !== 'string') return undefined;
 
     const log = value as SalesforceCliDebugLog;
     return {
