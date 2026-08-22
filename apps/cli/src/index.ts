@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises';
 
 import { LogAnalyzer, type ExecutionTreeNode } from '@traceforge/analyzer';
+import { SalesforceLogScanner } from '@traceforge/log-scanner';
 import type { LogEvent } from '@traceforge/shared';
 import { SalesforceLogParser } from '@traceforge/parser-adapter';
 import { DebugLogService } from '@traceforge/salesforce';
@@ -37,7 +38,6 @@ async function main(): Promise<void> {
       return;
 
     default:
-      // Preserve the original `pnpm cli <path>` command for local analysis.
       await analyzeFile(command);
   }
 }
@@ -113,25 +113,43 @@ function analyze(content: string, source: string): void {
 }
 
 function inspect(content: string, source: string): void {
-  const result = new SalesforceLogParser().parse(content, source);
+  const raw = new SalesforceLogScanner().scan(content);
+  const parsed = new SalesforceLogParser().parse(content, source);
   const counts = new Map<string, number>();
 
-  for (const event of result.events) {
+  for (const event of parsed.events) {
     const key = event.rawType ?? event.type;
     counts.set(key, (counts.get(key) ?? 0) + 1);
   }
 
-  console.log('\n=== PARSER EVENT INVENTORY ===\n');
-  console.log(`Total parsed events: ${result.events.length}`);
-  for (const [type, count] of [...counts.entries()].sort(([a], [b]) => a.localeCompare(b))) {
-    console.log(`${String(count).padStart(4)}  ${type}`);
+  console.log('\n=== RAW LOG SCAN ===\n');
+  console.log(`Raw parsed lines: ${raw.events.length}`);
+  console.log(`Ignored non-event lines: ${raw.ignoredLineCount}`);
+  console.log(`Structured parser events: ${parsed.events.length}`);
+  console.log(`Raw / structured event ratio: ${parsed.events.length === 0 ? 'n/a' : `${(raw.events.length / parsed.events.length).toFixed(1)}x`}`);
+
+  console.log('\n=== RAW EVENT TYPE INVENTORY ===\n');
+  for (const [type, count] of Object.entries(raw.eventTypeCounts).sort(([a], [b]) => a.localeCompare(b))) {
+    console.log(`${String(count).padStart(6)}  ${type}`);
   }
 
-  console.log('\n=== EVENTS ===\n');
-  result.events.forEach((event, index) => printEvent(event, index + 1));
+  console.log('\n=== STRUCTURED PARSER EVENT INVENTORY ===\n');
+  for (const [type, count] of [...counts.entries()].sort(([a], [b]) => a.localeCompare(b))) {
+    console.log(`${String(count).padStart(6)}  ${type}`);
+  }
 
-  console.log('\n=== EVENT HIERARCHY ===\n');
-  const analyzer = new LogAnalyzer(result.events);
+  console.log('\n=== RAW EVENTS ===\n');
+  for (const event of raw.events) {
+    console.log(
+      `${String(event.lineNumber).padStart(6)}  ${event.timestamp.toString().padStart(12)}  ${event.eventType.padEnd(32)}  ${event.details ?? ''}`
+    );
+  }
+
+  console.log('\n=== STRUCTURED EVENTS ===\n');
+  parsed.events.forEach((event, index) => printEvent(event, index + 1));
+
+  console.log('\n=== STRUCTURED EVENT HIERARCHY ===\n');
+  const analyzer = new LogAnalyzer(parsed.events);
   printInvestigationTree(analyzer.getExecutionTree());
 }
 
