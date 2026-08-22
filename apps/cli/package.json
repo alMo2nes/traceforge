@@ -9,6 +9,7 @@
   "dependencies": {
     "@traceforge/analyzer": "workspace:*",
     "@traceforge/parser-adapter": "workspace:*",
-    "@traceforge/salesforce": "workspace:*"
+    "@traceforge/salesforce": "workspace:*",
+    "@traceforge/shared": "workspace:*"
   }
 }
