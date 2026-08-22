@@ -105,3 +105,5 @@ export class SalesforceLogScanner {
     return undefined;
   }
 }
+
+export * from './semantic.js';
