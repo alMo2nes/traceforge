@@ -30,9 +30,10 @@ export function parseSalesforceLogSummaries(content: string): SalesforceLogSumma
     const trimmed = line.trim();
 
     const limitHeader = line.match(/\|LIMIT_USAGE_FOR_NS\|([^|]*)\|$/);
-    if (limitHeader) {
+    const namespace = limitHeader?.[1];
+    if (namespace !== undefined) {
       currentNamespace = {
-        namespace: limitHeader[1] || '(default)',
+        namespace: namespace || '(default)',
         metrics: {}
       };
       governorLimits.push(currentNamespace);
@@ -42,10 +43,13 @@ export function parseSalesforceLogSummaries(content: string): SalesforceLogSumma
 
     if (inGovernorLimitBlock) {
       const metric = trimmed.match(/^(.+?):\s*(\d+) out of (\d+)$/);
-      if (metric && currentNamespace) {
-        currentNamespace.metrics[metric[1].trim()] = {
-          used: Number(metric[2]),
-          limit: Number(metric[3])
+      const metricName = metric?.[1];
+      const metricUsed = metric?.[2];
+      const metricLimit = metric?.[3];
+      if (currentNamespace && metricName !== undefined && metricUsed !== undefined && metricLimit !== undefined) {
+        currentNamespace.metrics[metricName.trim()] = {
+          used: Number(metricUsed),
+          limit: Number(metricLimit)
         };
         continue;
       }
@@ -65,8 +69,9 @@ export function parseSalesforceLogSummaries(content: string): SalesforceLogSumma
     }
 
     const profilingHeader = line.match(/\|CUMULATIVE_PROFILING\|(.+?)(?:\||$)/);
-    if (profilingHeader) {
-      const value = profilingHeader[1].trim();
+    const profilingHeaderValue = profilingHeader?.[1];
+    if (profilingHeaderValue !== undefined) {
+      const value = profilingHeaderValue.trim();
       if (/^SOQL operations$/.test(value)) profilingCategory = 'SOQL';
       else if (/^SOSL operations$/.test(value)) profilingCategory = 'SOSL';
       else if (/^DML operations$/.test(value)) profilingCategory = 'DML';
