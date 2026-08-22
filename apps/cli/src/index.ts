@@ -1,7 +1,7 @@
 import { readFile } from 'node:fs/promises';
 
 import { LogAnalyzer, type ExecutionTreeNode } from '@traceforge/analyzer';
-import { SalesforceLogScanner } from '@traceforge/log-scanner';
+import { SalesforceLogScanner, type RawLogEvent } from '@traceforge/log-scanner';
 import type { LogEvent } from '@traceforge/shared';
 import { SalesforceLogParser } from '@traceforge/parser-adapter';
 import { DebugLogService } from '@traceforge/salesforce';
@@ -122,6 +122,11 @@ function inspect(content: string, source: string): void {
     counts.set(key, (counts.get(key) ?? 0) + 1);
   }
 
+  const structuredTypes = new Set(parsed.events.map((event) => event.rawType ?? event.type));
+  const rawOnlyTypes = Object.entries(raw.eventTypeCounts)
+    .filter(([type]) => !structuredTypes.has(type))
+    .sort(([a], [b]) => a.localeCompare(b));
+
   console.log('\n=== RAW LOG SCAN ===\n');
   console.log(`Raw parsed lines: ${raw.events.length}`);
   console.log(`Ignored non-event lines: ${raw.ignoredLineCount}`);
@@ -133,16 +138,21 @@ function inspect(content: string, source: string): void {
     console.log(`${String(count).padStart(6)}  ${type}`);
   }
 
-  console.log('\n=== STRUCTURED PARSER EVENT INVENTORY ===\n');
-  for (const [type, count] of [...counts.entries()].sort(([a], [b]) => a.localeCompare(b))) {
-    console.log(`${String(count).padStart(6)}  ${type}`);
+  console.log('\n=== RAW EVENT TYPES NOT REPRESENTED BY STRUCTURED PARSER ===\n');
+  if (rawOnlyTypes.length === 0) {
+    console.log('None');
+  } else {
+    for (const [type, count] of rawOnlyTypes) {
+      console.log(`${String(count).padStart(6)}  ${type}`);
+    }
   }
 
   console.log('\n=== RAW EVENTS ===\n');
-  for (const event of raw.events) {
-    console.log(
-      `${String(event.lineNumber).padStart(6)}  ${event.timestamp.toString().padStart(12)}  ${event.eventType.padEnd(32)}  ${event.details ?? ''}`
-    );
+  raw.events.forEach((event, index) => printRawEvent(event, index + 1));
+
+  console.log('\n=== STRUCTURED PARSER EVENT INVENTORY ===\n');
+  for (const [type, count] of [...counts.entries()].sort(([a], [b]) => a.localeCompare(b))) {
+    console.log(`${String(count).padStart(6)}  ${type}`);
   }
 
   console.log('\n=== STRUCTURED EVENTS ===\n');
@@ -151,6 +161,12 @@ function inspect(content: string, source: string): void {
   console.log('\n=== STRUCTURED EVENT HIERARCHY ===\n');
   const analyzer = new LogAnalyzer(parsed.events);
   printInvestigationTree(analyzer.getExecutionTree());
+}
+
+function printRawEvent(event: RawLogEvent, index: number): void {
+  console.log(`#${String(index).padStart(5)} line=${event.lineNumber} timestamp=${event.timestamp} type=${event.eventType}`);
+  console.log(`  details: ${event.details ?? '-'}`);
+  console.log(`  raw:     ${event.rawLine}`);
 }
 
 function printEvent(event: LogEvent, index: number): void {
