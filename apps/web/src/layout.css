@@ -1,0 +1,80 @@
+.content-grid {
+  grid-template-columns: 290px 340px minmax(0, 1fr);
+  grid-template-rows: minmax(420px, 1fr) 240px;
+  height: calc(100vh - 146px);
+  min-height: 720px;
+}
+
+.logs-panel { grid-column: 1; grid-row: 1 / span 2; }
+.results-panel { grid-column: 2; grid-row: 1 / span 2; }
+.tree-panel { grid-column: 3; grid-row: 1; min-height: 0; }
+.inspector-panel { grid-column: 3; grid-row: 2; min-height: 0; }
+
+.inspector-header { min-height: 54px; }
+.inspector-content {
+  height: calc(100% - 54px);
+  padding: 10px 14px 14px;
+  display: grid;
+  grid-template-columns: minmax(230px, .65fr) minmax(300px, 1.25fr) minmax(260px, 1fr);
+  gap: 14px;
+  align-items: start;
+}
+
+.inspector-title-row { min-width: 0; padding-top: 2px; }
+.inspector-title-row h2 { font-size: 12px; }
+.inspector-title-row p { font-size: 9px; }
+.inspector-content .facts-grid {
+  margin-top: 0;
+  align-self: start;
+}
+.inspector-section { margin-top: 0; min-width: 0; }
+.inspector-section + .inspector-section { margin-top: 0; }
+.inspector-content .section-heading { font-size: 9px; margin-bottom: 6px; }
+.variable-table { max-height: 158px; overflow: auto; }
+.variable-row { padding: 7px 8px; }
+.log-output {
+  margin: 0;
+  height: 158px;
+  overflow: auto;
+  border: 1px solid #202b40;
+  background: #0a101b;
+  border-radius: 8px;
+  padding: 9px;
+  color: #aebbd0;
+  font: 9px/1.45 "JetBrains Mono", monospace;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.tree-scroll { height: calc(100% - 54px); padding: 7px 6px 12px; }
+.tree-node {
+  min-height: 32px;
+  padding-top: 3px;
+  padding-bottom: 3px;
+  grid-template-columns: 13px 24px minmax(0, 1fr) auto auto;
+  gap: 5px;
+  border-radius: 6px;
+}
+.tree-label { gap: 1px; }
+.tree-label span { font-size: 10px; }
+.tree-label small { font-size: 8px; }
+.tree-line, .tree-time { font-size: 8px; }
+.tree-time { width: 64px; }
+.tree-node .node-icon { min-width: 24px; height: 21px; padding: 0 3px; border-radius: 5px; font-size: 7px; }
+.chevron { font-size: 8px; }
+
+@media (max-width: 1400px) {
+  .content-grid { grid-template-columns: 260px 300px minmax(0, 1fr); }
+}
+
+@media (max-width: 1120px) {
+  .inspector-content { grid-template-columns: 1fr 1fr; overflow: auto; }
+  .inspector-content .inspector-title-row { grid-column: 1 / -1; }
+  .inspector-content .inspector-section:last-child { grid-column: 1 / -1; }
+}
+
+:root[data-theme='light'] .log-output {
+  background: #f7f9fc;
+  color: #334155;
+  border-color: #d7dfeb;
+}
