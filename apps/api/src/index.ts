@@ -9,12 +9,7 @@ const traceFlags = new TraceFlagService();
 
 function json(res: ServerResponse, status: number, value: unknown): void {
   const body = JSON.stringify(value);
-  res.writeHead(status, {
-    'Content-Type': 'application/json; charset=utf-8',
-    'Access-Control-Allow-Origin': 'http://localhost:5173',
-    'Access-Control-Allow-Methods': 'GET,POST,OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type'
-  });
+  res.writeHead(status, {'Content-Type':'application/json; charset=utf-8','Access-Control-Allow-Origin':'http://localhost:5173','Access-Control-Allow-Methods':'GET,POST,OPTIONS','Access-Control-Allow-Headers':'Content-Type'});
   res.end(body);
 }
 
@@ -23,8 +18,7 @@ async function body(req: IncomingMessage): Promise<Record<string, unknown>> {
   for await (const chunk of req) chunks.push(Buffer.from(chunk));
   if (!chunks.length) return {};
   const parsed: unknown = JSON.parse(Buffer.concat(chunks).toString('utf8'));
-  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return {};
-  return parsed as Record<string, unknown>;
+  return typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed) ? parsed as Record<string, unknown> : {};
 }
 
 function pathParts(req: IncomingMessage): string[] {
@@ -33,25 +27,15 @@ function pathParts(req: IncomingMessage): string[] {
 
 async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
   if (req.method === 'OPTIONS') {
-    res.writeHead(204, {
-      'Access-Control-Allow-Origin': 'http://localhost:5173',
-      'Access-Control-Allow-Methods': 'GET,POST,OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type'
-    });
+    res.writeHead(204, {'Access-Control-Allow-Origin':'http://localhost:5173','Access-Control-Allow-Methods':'GET,POST,OPTIONS','Access-Control-Allow-Headers':'Content-Type'});
     res.end();
     return;
   }
 
   try {
     const parts = pathParts(req);
-
-    if (req.method === 'GET' && parts.join('/') === 'api/orgs') {
-      return json(res, 200, await debugLogs.listOrgs());
-    }
-
-    if (req.method === 'GET' && parts[0] === 'api' && parts[1] === 'orgs' && parts[3] === 'users') {
-      return json(res, 200, await traceFlags.listUsers(decodeURIComponent(parts[2])));
-    }
+    if (req.method === 'GET' && parts.join('/') === 'api/orgs') return json(res, 200, await debugLogs.listOrgs());
+    if (req.method === 'GET' && parts[0] === 'api' && parts[1] === 'orgs' && parts[3] === 'users') return json(res, 200, await traceFlags.listUsers(decodeURIComponent(parts[2])));
 
     if (req.method === 'GET' && parts[0] === 'api' && parts[1] === 'orgs' && parts[3] === 'debug-levels') {
       const org = decodeURIComponent(parts[2]);
@@ -63,12 +47,16 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
     if (req.method === 'GET' && parts[0] === 'api' && parts[1] === 'orgs' && parts[3] === 'logs' && parts.length === 6 && parts[5] === 'investigation') {
       const org = decodeURIComponent(parts[2]);
       const logId = decodeURIComponent(parts[4]);
+      console.info(`[API] analyze log org=${org} logId=${logId}`);
       const content = await debugLogs.fetchLog(org, logId);
       return json(res, 200, { nodes: analyzeLog(content) });
     }
 
     if (req.method === 'GET' && parts[0] === 'api' && parts[1] === 'orgs' && parts[3] === 'logs' && parts.length === 5) {
-      return json(res, 200, { content: await debugLogs.fetchLog(decodeURIComponent(parts[2]), decodeURIComponent(parts[4])) });
+      const org = decodeURIComponent(parts[2]);
+      const logId = decodeURIComponent(parts[4]);
+      console.info(`[API] fetch raw log org=${org} logId=${logId}`);
+      return json(res, 200, { content: await debugLogs.fetchLog(org, logId) });
     }
 
     if (req.method === 'GET' && parts[0] === 'api' && parts[1] === 'orgs' && parts[3] === 'logs' && parts.length === 4) {
@@ -81,20 +69,18 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
       const userId = typeof payload.userId === 'string' ? payload.userId : '';
       const debugLevelId = typeof payload.debugLevelId === 'string' ? payload.debugLevelId : undefined;
       const durationMinutes = typeof payload.durationMinutes === 'number' ? payload.durationMinutes : 30;
+      console.info(`[API] create trace flag org=${org} user=${userId} debugLevel=${debugLevelId ?? 'AUTO-FINEST'} duration=${durationMinutes}`);
       if (!userId) return json(res, 400, { error: 'userId is required' });
-
       const result = await traceFlags.createOrUpdateUserTraceFlag(org, { userId, debugLevelId, durationMinutes });
+      console.info(`[API] trace flag success id=${result.id} user=${result.tracedEntityId}`);
       return json(res, 200, result);
     }
 
     return json(res, 404, { error: 'Not found' });
   } catch (error) {
+    console.error('[API] request failed', error);
     return json(res, 500, { error: error instanceof Error ? error.message : String(error) });
   }
 }
 
-createServer((req, res) => {
-  void handle(req, res);
-}).listen(port, () => {
-  console.log(`TraceForge API listening on http://localhost:${port}`);
-});
+createServer((req, res) => { void handle(req, res); }).listen(port, () => console.log(`TraceForge API listening on http://localhost:${port}`));
