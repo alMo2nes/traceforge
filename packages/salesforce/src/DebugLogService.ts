@@ -90,7 +90,10 @@ export class DebugLogService {
   async fetchLog(org: string, logId: string): Promise<string> {
     console.info(`[LOGS] fetch log org=${org} id=${logId}`);
     const connection = await this.connectionService.connect(org);
-    const body = await connection.request<string>(`/services/data/${connection.version}/tooling/sobjects/ApexLog/${encodeURIComponent(logId)}/Body`);
+    const body = await connection.request<string>(
+      `/services/data/v${connection.version}/tooling/sobjects/ApexLog/${encodeURIComponent(logId)}/Body`,
+      { responseType: 'text' }
+    );
     if (typeof body !== 'string') {
       throw new SalesforceCliError(`Salesforce Tooling API returned a non-text ApexLog body for ${logId}.`);
     }
