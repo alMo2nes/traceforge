@@ -23,18 +23,28 @@ export class SalesforceCli implements SalesforceCliRunner {
   constructor(private readonly execute: ExecFile = execFile as unknown as ExecFile) {}
 
   async run(args: readonly string[]): Promise<string> {
+    const command = `sf ${args.join(' ')}`;
+    console.info(`[SF CLI] ${command}`);
+
     try {
       return await new Promise<string>((resolve, reject) => {
-        this.execute('sf', [...args], { maxBuffer: 32 * 1024 * 1024 }, (error, stdout) => {
+        this.execute('sf', [...args], { maxBuffer: 32 * 1024 * 1024 }, (error, stdout, stderr) => {
+          if (stderr?.trim()) console.warn(`[SF CLI stderr] ${stderr.trim()}`);
           if (error) {
-            reject(error);
+            const wrapped = new Error(stderr?.trim() ? `${error.message}\n${stderr.trim()}` : error.message);
+            Object.assign(wrapped, { stderr });
+            reject(wrapped);
             return;
           }
-
+          if (stdout?.trim()) {
+            const preview = stdout.trim().length > 1200 ? `${stdout.trim().slice(0, 1200)}…` : stdout.trim();
+            console.debug(`[SF CLI stdout] ${preview}`);
+          }
           resolve(stdout);
         });
       });
     } catch (error) {
+      console.error(`[SF CLI failed] ${command}`);
       throw new SalesforceCliError(this.errorMessage(args, error), error);
     }
   }
@@ -42,35 +52,19 @@ export class SalesforceCli implements SalesforceCliRunner {
   private errorMessage(args: readonly string[], error: unknown): string {
     const command = `sf ${args.join(' ')}`;
     const code = this.errorCode(error);
-
-    if (code === 'ENOENT') {
-      return 'Salesforce CLI is not installed or is not available on PATH.';
-    }
-
+    if (code === 'ENOENT') return 'Salesforce CLI is not installed or is not available on PATH.';
     const details = this.errorText(error);
-
-    if (/not authenticated|not authorized|auth.*required|no.*auth/i.test(details)) {
-      return 'The selected Salesforce org is not authenticated. Run `sf org login web` and try again.';
-    }
-
-    if (/not found|invalid.*org|unknown.*org|does not exist/i.test(details)) {
-      return 'The selected Salesforce org alias or username is invalid.';
-    }
-
+    if (/not authenticated|not authorized|auth.*required|no.*auth/i.test(details)) return 'The selected Salesforce org is not authenticated. Run `sf org login web` and try again.';
+    if (/not found|invalid.*org|unknown.*org|does not exist/i.test(details)) return 'The selected Salesforce org alias or username is invalid.';
     return `Salesforce CLI command failed: ${command}${details ? `\n${details}` : ''}`;
   }
 
   private errorCode(error: unknown): string | undefined {
-    return this.isObject(error) && typeof error.code === 'string'
-      ? error.code
-      : undefined;
+    return this.isObject(error) && typeof error.code === 'string' ? error.code : undefined;
   }
 
   private errorText(error: unknown): string {
-    if (!this.isObject(error)) {
-      return error instanceof Error ? error.message : '';
-    }
-
+    if (!this.isObject(error)) return error instanceof Error ? error.message : '';
     const stderr = typeof error.stderr === 'string' ? error.stderr : '';
     const message = typeof error.message === 'string' ? error.message : '';
     return [stderr, message].filter(Boolean).join('\n').trim();
