@@ -6,6 +6,15 @@ export interface DebugLevelInfo { id: string; developerName: string; masterLabel
 export interface TraceFlagInfo { id: string; tracedEntityId: string; debugLevelId: string; logType: string; startDate?: string; expirationDate?: string; }
 export interface CreateTraceFlagInput { userId: string; debugLevelId?: string; durationMinutes?: number; }
 
+interface TraceFlagRecord {
+  Id: string;
+  TracedEntityId: string;
+  DebugLevelId: string;
+  LogType: string;
+  StartDate?: string;
+  ExpirationDate?: string;
+}
+
 const FINEST_LEVEL_NAME = 'FINEST';
 const DEBUG_LEVEL_FIELDS = ['ApexCode','ApexProfiling','Callout','Database','System','Validation','Visualforce','Workflow'] as const;
 
@@ -96,13 +105,19 @@ export class TraceFlagService {
     console.info(`[TRACE] looking for active TraceFlag user=${userId}`);
     const connection = await this.connectionService.connect(org);
     const query = `SELECT Id, TracedEntityId, DebugLevelId, LogType, StartDate, ExpirationDate FROM TraceFlag WHERE TracedEntityId = '${userId}' AND LogType = 'USER_DEBUG' ORDER BY ExpirationDate DESC`;
-    const result = await connection.tooling.query<TraceFlagInfo>(query);
+    const result = await connection.tooling.query<TraceFlagRecord>(query);
     const now = Date.now();
     for (const value of result.records) {
-      const expiration = value.expirationDate ?? value.expirationDate;
-      if (!expiration || new Date(expiration).getTime() > now) {
-        console.info(`[TRACE] found active TraceFlag id=${value.id}`);
-        return value;
+      if (!value.ExpirationDate || new Date(value.ExpirationDate).getTime() > now) {
+        console.info(`[TRACE] found active TraceFlag id=${value.Id}`);
+        return {
+          id: value.Id,
+          tracedEntityId: value.TracedEntityId,
+          debugLevelId: value.DebugLevelId,
+          logType: value.LogType,
+          startDate: value.StartDate,
+          expirationDate: value.ExpirationDate
+        };
       }
     }
     console.info('[TRACE] no active TraceFlag found');
