@@ -6,171 +6,46 @@ import './styles.css';
 import './layout.css';
 import './integration.css';
 
-const nodeIcon: Record<InvestigationNode['kind'], string> = {
-  transaction: 'TX', 'code-unit': 'CU', method: 'fn', soql: 'DB', dml: 'DML', flow: 'FLW', exception: '!'
-};
+const nodeIcon: Record<InvestigationNode['kind'], string> = { transaction:'TX','code-unit':'CU',method:'fn',soql:'DB',dml:'DML',flow:'FLW',exception:'!' };
+const nodeDetails: Record<string,string> = {'n-001':'Apex entry point received the request and began Account update processing.','n-002':'USER_DEBUG|[74]|DEBUG|AccountService.validate() completed validation for account 001…7TAAS','n-005':'EXCEPTION_THROWN|[147]|System.NullPointerException: Attempt to de-reference a null object\n\nClass.AccountService.update: line 147, column 1\nClass.AccountController.saveAccount: line 93, column 1\n\nContext:\naccount = null','n-202':'USER_DEBUG|[74]|DEBUG|AccountService.validate() completed validation.\nVariables: isValid=true','n-206':'FLOW_ELEMENT_ERROR|Apex Action: NotificationService.notify()\nFlowFault: Notification failed\nRecipient is missing','n-303':'SOQL_EXECUTE_BEGIN|[41]|SELECT Id, Name FROM Account WHERE Id = :accountId\nSOQL_EXECUTE_END|[41]|Rows:1'};
+type UiNode = InvestigationNode & { logOutput?: string };
+function formatDuration(value?: number){return value===undefined?'—':`${value.toFixed(2)} ms`}
+function localTime(value?:string){if(!value)return'—';const d=new Date(value);return Number.isNaN(d.getTime())?value:d.toLocaleTimeString([],{hour12:false,hour:'2-digit',minute:'2-digit',second:'2-digit',fractionalSecondDigits:3})}
+function toLogRecord(log:DebugLogInfo):LogRecord{const entryPoint=log.operation||'Salesforce transaction';const status:LogRecord['status']=(log.status??'').toLowerCase()==='success'?'Success':'Error';const node:InvestigationNode={id:`tx-${log.id}`,kind:'transaction',label:entryPoint,subtitle:log.userName?`User · ${log.userName}`:'Salesforce transaction',timestamp:localTime(log.startTime),durationMs:log.durationMs,status:status==='Success'?'ok':'error',variables:[],children:[]};return{id:log.id,timestamp:node.timestamp,entryPoint,operation:log.operation??'—',durationMs:log.durationMs??0,sizeKb:log.logLength?Math.round(log.logLength/1024):0,user:log.userName??log.userId??'—',status,summary:log.userName?`${entryPoint} · ${log.userName}`:entryPoint,nodes:[node]}}
+function dtoToNode(n:InvestigationNodeDto):UiNode{return{id:n.id,kind:n.kind,label:n.label,subtitle:n.subtitle,line:n.line,timestamp:n.timestamp,durationMs:n.durationMs,status:n.status,variables:n.variables,children:n.children.map(dtoToNode),logOutput:n.logOutput}}
+function containsQuery(log:LogRecord,q:string){if(!q.trim())return[];const n=q.trim().toLowerCase();const found=flattenNodes(log.nodes).filter(x=>[x.label,x.subtitle,x.variables.map(v=>`${v.name} ${v.value}`).join(' ')].some(v=>v?.toLowerCase().includes(n)));return found.length?found:([log.entryPoint,log.operation,log.user,log.summary].some(v=>v?.toLowerCase().includes(n))?(log.nodes.length?[log.nodes[0]]:[]):[])}
 
-type DisplayNode = InvestigationNode & { logOutput?: string };
-
-const nodeDetails: Record<string, string> = {
-  'n-001': 'Apex entry point received the request and began Account update processing.',
-  'n-002': 'USER_DEBUG|[74]|DEBUG|AccountService.validate() completed validation for account 001…7TAAS',
-  'n-005': 'EXCEPTION_THROWN|[147]|System.NullPointerException: Attempt to de-reference a null object\n\nClass.AccountService.update: line 147, column 1\nClass.AccountController.saveAccount: line 93, column 1\n\nContext:\naccount = null',
-  'n-202': 'USER_DEBUG|[74]|DEBUG|AccountService.validate() completed validation.\nVariables: isValid=true',
-  'n-206': 'FLOW_ELEMENT_ERROR|Apex Action: NotificationService.notify()\nFlowFault: Notification failed\nRecipient is missing',
-  'n-303': 'SOQL_EXECUTE_BEGIN|[41]|SELECT Id, Name FROM Account WHERE Id = :accountId\nSOQL_EXECUTE_END|[41]|Rows:1',
-};
-
-function formatDuration(value: number | undefined): string { return value === undefined ? '—' : `${value.toFixed(2)} ms`; }
-
-function containsQuery(log: LogRecord, query: string): InvestigationNode[] {
-  if (!query.trim()) return [];
-  const needle = query.trim().toLowerCase();
-  const nodes = flattenNodes(log.nodes).filter((node) =>
-    [node.label, node.subtitle, node.variables.map((v) => `${v.name} ${v.value}`).join(' ')].some((value) => value?.toLowerCase().includes(needle)),
-  );
-  if (nodes.length === 0 && [log.entryPoint, log.operation, log.user, log.summary].some((value) => value?.toLowerCase().includes(needle))) return log.nodes.length ? [log.nodes[0]] : [];
-  return nodes;
+function App(){
+ const[query,setQuery]=useState('AccountService'),[orgs,setOrgs]=useState<OrgInfo[]>([]),[selectedOrg,setSelectedOrg]=useState(()=>localStorage.getItem('traceforge-org')??'');
+ const[liveLogs,setLiveLogs]=useState<LogRecord[]|null>(null),[liveMode,setLiveMode]=useState(false),[dataLoading,setDataLoading]=useState(false),[connectionError,setConnectionError]=useState('');
+ const[selectedLogIds,setSelectedLogIds]=useState<string[]>([]),[activeLogId,setActiveLogId]=useState(''),[selectedNodeId,setSelectedNodeId]=useState(''),[showSystem,setShowSystem]=useState(false);
+ const[theme,setTheme]=useState<'dark'|'light'>(()=>localStorage.getItem('traceforge-theme')==='light'?'light':'dark');const[inspectorHeight,setInspectorHeight]=useState(280);
+ const[traceModalOpen,setTraceModalOpen]=useState(false),[traceMessage,setTraceMessage]=useState(''),[collapsed,setCollapsed]=useState<Record<string,boolean>>({}),[rawLogOpen,setRawLogOpen]=useState(false),[rawLog,setRawLog]=useState(''),[rawLoading,setRawLoading]=useState(false),[analysisLoading,setAnalysisLoading]=useState(false);
+ const displayLogs=liveLogs??fixtureLogs;
+ useEffect(()=>{document.documentElement.dataset.theme=theme;localStorage.setItem('traceforge-theme',theme)},[theme]);
+ useEffect(()=>{const s=Number(localStorage.getItem('traceforge-inspector-height'));if(Number.isFinite(s)&&s>=180&&s<=620)setInspectorHeight(s)},[]);
+ useEffect(()=>{traceforgeApi.listOrgs().then(items=>{setOrgs(items);if(!selectedOrg&&items[0]?.alias)setSelectedOrg(items[0].alias)}).catch(e=>setConnectionError(e instanceof Error?e.message:String(e)))},[selectedOrg]);
+ const loadInvestigation=async(id:string)=>{if(!selectedOrg||!liveMode||id.startsWith('07L-'))return;setAnalysisLoading(true);try{const{nodes}=await traceforgeApi.investigateLog(selectedOrg,id);setLiveLogs(cur=>cur?.map(l=>l.id===id?{...l,nodes:nodes.map(dtoToNode)}:l)??cur)}catch(e){setConnectionError(e instanceof Error?e.message:String(e))}finally{setAnalysisLoading(false)}};
+ useEffect(()=>{if(!selectedOrg)return;localStorage.setItem('traceforge-org',selectedOrg);setDataLoading(true);setConnectionError('');traceforgeApi.listLogs(selectedOrg).then(records=>{const mapped=records.map(toLogRecord);setLiveLogs(mapped);setLiveMode(true);setSelectedLogIds(mapped.slice(0,4).map(l=>l.id));setActiveLogId(mapped[0]?.id??'');setSelectedNodeId(mapped[0]?.nodes[0]?.id??'')}).catch(e=>{setLiveMode(false);setConnectionError(e instanceof Error?e.message:String(e))}).finally(()=>setDataLoading(false))},[selectedOrg]);
+ const activeLog=displayLogs.find(l=>l.id===activeLogId)??displayLogs[0],selectedLogs=displayLogs.filter(l=>selectedLogIds.includes(l.id)),matches=useMemo(()=>selectedLogs.flatMap(l=>containsQuery(l,query).map(node=>({log:l,node}))),[selectedLogs,query]);const selectedNode=useMemo(()=>activeLog?flattenNodes(activeLog.nodes).find(n=>n.id===selectedNodeId)??activeLog.nodes[0]:undefined,[activeLog,selectedNodeId]);
+ const selectLog=(id:string)=>{setActiveLogId(id);const first=displayLogs.find(l=>l.id===id)?.nodes[0];setSelectedNodeId(first?.id??'');if(liveMode)void loadInvestigation(id)};const toggleLog=(id:string)=>setSelectedLogIds(cur=>cur.includes(id)?cur.filter(x=>x!==id):[...cur,id]);
+ const refresh=()=>{if(!selectedOrg)return;setDataLoading(true);traceforgeApi.listLogs(selectedOrg).then(r=>setLiveLogs(r.map(toLogRecord))).catch(e=>setConnectionError(e instanceof Error?e.message:String(e))).finally(()=>setDataLoading(false))};
+ const collapseAll=()=>{const next:Record<string,boolean>={};if(activeLog)flattenNodes(activeLog.nodes).forEach(n=>{if(n.children.length)next[n.id]=true});setCollapsed(next)};const expandAll=()=>setCollapsed({});const toggleNode=(id:string)=>setCollapsed(c=>({...c,[id]:!c[id]}));
+ const raw=async()=>{if(!activeLog||!selectedOrg)return;setRawLogOpen(true);setRawLoading(true);try{setRawLog((await traceforgeApi.fetchLog(selectedOrg,activeLog.id)).content)}catch(e){setRawLog(e instanceof Error?e.message:String(e))}finally{setRawLoading(false)}};
+ const resize=(e:React.PointerEvent<HTMLDivElement>)=>{e.preventDefault();const y=e.clientY,h=inspectorHeight;const move=(m:PointerEvent)=>{const n=Math.max(180,Math.min(620,h+y-m.clientY));setInspectorHeight(n);localStorage.setItem('traceforge-inspector-height',String(n))};const up=()=>{removeEventListener('pointermove',move);removeEventListener('pointerup',up);document.body.style.cursor='';document.body.style.userSelect=''};document.body.style.cursor='row-resize';document.body.style.userSelect='none';addEventListener('pointermove',move);addEventListener('pointerup',up,{once:true})};
+ const detail=(selectedNode as UiNode|undefined)?.logOutput??(selectedNode?nodeDetails[selectedNode.id]??selectedNode.subtitle??activeLog?.summary??'':activeLog?.summary??'');
+ const onTraceCreated=(r:TraceFlagResult)=>setTraceMessage(`Trace flag active until ${r.expirationDate?new Date(r.expirationDate).toLocaleTimeString():'expiration'}.`);
+ return <div className="app-shell"><header className="topbar"><div className="brand"><div className="brand-mark">T</div><div><div className="brand-name">TraceForge</div><div className="brand-subtitle">Salesforce transaction investigation</div></div></div><div className="context-pills"><label className="org-picker"><span>Org</span><select value={selectedOrg} onChange={e=>setSelectedOrg(e.target.value)} disabled={!orgs.length}>{!orgs.length&&<option value="">No connected org</option>}{orgs.map(o=><option key={`${o.alias}-${o.username}`} value={o.alias}>{o.alias}</option>)}</select></label><span className={`mode-pill ${liveMode?'live':'demo'}`}>{liveMode?'Live org':'Demo data'}</span><span className="status-dot"><span/>{dataLoading?'Loading':'Ready'}</span><button className="theme-btn" type="button" onClick={()=>setTheme(t=>t==='dark'?'light':'dark')}>{theme==='dark'?'☀ Light':'☾ Dark'}</button></div></header>
+ <main className="workspace"><section className="toolbar"><div className="search-wrap"><span className="search-icon">⌕</span><input value={query} onChange={e=>setQuery(e.target.value)} placeholder="Search class, method, variable, ID, exception..."/><span className="shortcut">⌘ K</span></div><div className="toolbar-actions"><label className="toggle"><input type="checkbox" checked={showSystem} onChange={e=>setShowSystem(e.target.checked)}/><span/> Show system calls</label><button className="ghost-btn" type="button" onClick={()=>setTraceModalOpen(true)} disabled={!selectedOrg}>Trace flag</button><button className="primary-btn" type="button" onClick={refresh} disabled={!selectedOrg||dataLoading}>{dataLoading?'Refreshing…':'Refresh logs'}</button></div></section>
+ {traceMessage&&<div className="trace-toast">{traceMessage}</div>}{connectionError&&<div className="connection-banner">{connectionError}</div>}
+ <div className="content-grid" style={{'--inspector-height':`${inspectorHeight}px`} as CSSProperties}>
+ <aside className="logs-panel panel"><div className="panel-header"><div><div className="panel-title">Logs</div><div className="panel-meta">{displayLogs.length} transactions</div></div></div><div className="selection-bar"><span>{selectedLogIds.length} selected</span><button type="button" onClick={()=>setSelectedLogIds(displayLogs.map(l=>l.id))}>Select all</button></div><div className="log-list">{displayLogs.map(log=><button key={log.id} className={`log-card ${log.id===activeLogId?'active':''}`} onClick={()=>selectLog(log.id)}><span className="check-wrap" onClick={e=>{e.stopPropagation();toggleLog(log.id)}}><span className={`fake-check ${selectedLogIds.includes(log.id)?'checked':''}`}>{selectedLogIds.includes(log.id)?'✓':''}</span></span><span className="log-main"><span className="log-time">{log.timestamp}</span><span className="log-entry">{log.entryPoint}</span><span className="log-summary">{log.summary}</span><span className="log-tags"><span className={`result ${log.status.toLowerCase()}`}>{log.status}</span><span>{formatDuration(log.durationMs)}</span><span>{log.sizeKb} KB</span></span></span></button>)}</div></aside>
+ <section className="results-panel panel"><div className="panel-header"><div><div className="panel-title">Search results</div><div className="panel-meta">{matches.length} matches across {selectedLogs.length} selected logs</div></div><span className="match-chip">{query||'Search'}</span></div><div className="results-list">{matches.length===0?<div className="empty-state">No matching instances in the selected logs.</div>:matches.map(({log,node})=><button key={`${log.id}-${node.id}`} className={`match-row ${log.id===activeLogId&&node.id===selectedNodeId?'selected':''}`} onClick={()=>{selectLog(log.id);setSelectedNodeId(node.id)}}><span className={`node-icon ${node.kind}`}>{nodeIcon[node.kind]}</span><span className="match-main"><span className="match-name">{node.label}</span><span className="match-context">{log.timestamp} · {log.entryPoint}{node.line?` · line ${node.line}`:''}</span></span><span className="match-duration">{formatDuration(node.durationMs)}</span></button>)}</div></section>
+ <section className="tree-panel panel"><div className="panel-header tree-header"><div><div className="panel-title">Transaction</div><div className="panel-meta">{activeLog?`${activeLog.timestamp} · ${activeLog.operation} · ${activeLog.id}`:'No log selected'}</div></div><div className="tree-actions"><button className="ghost-btn small" type="button" onClick={collapseAll}>Collapse</button><button className="ghost-btn small" type="button" onClick={expandAll}>Expand</button><button className="ghost-btn small" type="button" onClick={()=>void raw()} disabled={!activeLog||!selectedOrg}>Raw log</button></div></div><div className="tree-scroll">{activeLog?.nodes.map(node=><TreeNode key={node.id} node={node} selectedNodeId={selectedNodeId} onSelect={setSelectedNodeId} depth={0} collapsed={collapsed} onToggle={toggleNode}/>)}</div></section>
+ <div className="inspector-resizer" role="separator" aria-orientation="horizontal" aria-label="Resize inspector" onPointerDown={resize}><span/></div>
+ <section className="inspector-panel panel"><div className="panel-header inspector-header"><div><div className="panel-title">Inspector</div><div className="panel-meta">Selected node · variables, exception, or debug output</div></div>{selectedNode?.status==='error'&&<span className="error-badge">Error</span>}</div>{selectedNode&&<div className="inspector-content"><div className="inspector-title-row"><span className={`node-icon large ${selectedNode.kind}`}>{nodeIcon[selectedNode.kind]}</span><div><h2>{selectedNode.label}</h2><p>{selectedNode.subtitle}</p></div></div><div className="inspector-facts"><span>Time<strong>{selectedNode.timestamp}</strong></span><span>Duration<strong>{formatDuration(selectedNode.durationMs)}</strong></span><span>Source line<strong>{selectedNode.line??'—'}</strong></span><span>Log<strong>{activeLog?.id??'—'}</strong></span></div><div className="inspector-section"><div className="section-heading">Variables & values</div><div className="variable-table">{selectedNode.variables.length===0?<div className="muted-text">No variables captured at this node.</div>:selectedNode.variables.map(v=><div className="variable-row" key={`${v.name}-${v.type}`}><span className="variable-name">{v.name}</span><span className="variable-type">{v.type}</span><code>{v.value}</code></div>)}</div></div><div className="inspector-section log-output-section"><div className="section-heading">Log output</div><pre className="log-output">{analysisLoading?'Loading investigation…':detail}</pre></div></div>}</section>
+ </div></main><TraceFlagModal org={selectedOrg} open={traceModalOpen} onClose={()=>setTraceModalOpen(false)} onCreated={onTraceCreated}/>{rawLogOpen&&<div className="raw-log-backdrop" onMouseDown={e=>{if(e.target===e.currentTarget)setRawLogOpen(false)}}><section className="raw-log-modal"><div className="panel-header"><div><div className="panel-title">Raw log</div><div className="panel-meta">{activeLog?.id}</div></div><button className="icon-btn" type="button" onClick={()=>setRawLogOpen(false)}>×</button></div><pre className="raw-log-content">{rawLoading?'Loading…':rawLog}</pre></section></div>}</div>
 }
 
-function toLocalTime(value?: string): string {
-  if (!value) return '—';
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? value : date.toLocaleTimeString([], { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit', fractionalSecondDigits: 3 });
-}
-
-function toLogRecord(log: DebugLogInfo): LogRecord {
-  const entryPoint = log.operation || 'Salesforce transaction';
-  const status: LogRecord['status'] = (log.status ?? '').toLowerCase() === 'success' ? 'Success' : 'Error';
-  const node: InvestigationNode = { id: `tx-${log.id}`, kind: 'transaction', label: entryPoint, subtitle: log.userName ? `User · ${log.userName}` : 'Salesforce transaction', timestamp: toLocalTime(log.startTime), durationMs: log.durationMs, status: status === 'Success' ? 'ok' : 'error', variables: [], children: [] };
-  return { id: log.id, timestamp: node.timestamp, entryPoint, operation: log.operation ?? '—', durationMs: log.durationMs ?? 0, sizeKb: log.logLength ? Math.round(log.logLength / 1024) : 0, user: log.userName ?? log.userId ?? '—', status, summary: log.userName ? `${entryPoint} · ${log.userName}` : entryPoint, nodes: [node] };
-}
-
-function mergeInvestigation(log: LogRecord, nodes: InvestigationNodeDto[]): LogRecord {
-  const displayNodes = nodes as unknown as InvestigationNode[];
-  return { ...log, entryPoint: nodes[0]?.label ?? log.entryPoint, nodes: displayNodes };
-}
-
-function App() {
-  const [query, setQuery] = useState('AccountService');
-  const [orgs, setOrgs] = useState<OrgInfo[]>([]);
-  const [selectedOrg, setSelectedOrg] = useState(() => window.localStorage.getItem('traceforge-org') ?? '');
-  const [liveLogs, setLiveLogs] = useState<LogRecord[] | null>(null);
-  const [liveMode, setLiveMode] = useState(false);
-  const [dataLoading, setDataLoading] = useState(false);
-  const [connectionError, setConnectionError] = useState('');
-  const [selectedLogIds, setSelectedLogIds] = useState<string[]>(['07L-demo-001', '07L-demo-002', '07L-demo-003', '07L-demo-005']);
-  const [activeLogId, setActiveLogId] = useState('07L-demo-001');
-  const [selectedNodeId, setSelectedNodeId] = useState('n-001');
-  const [showSystem, setShowSystem] = useState(false);
-  const [theme, setTheme] = useState<'dark' | 'light'>(() => window.localStorage.getItem('traceforge-theme') === 'light' ? 'light' : 'dark');
-  const [inspectorHeight, setInspectorHeight] = useState(() => { const stored = Number(window.localStorage.getItem('traceforge-inspector-height')); return Number.isFinite(stored) && stored >= 180 && stored <= 620 ? stored : 280; });
-  const [traceModalOpen, setTraceModalOpen] = useState(false);
-  const [traceMessage, setTraceMessage] = useState('');
-  const [traceMessageError, setTraceMessageError] = useState(false);
-
-  const displayLogs = liveLogs ?? fixtureLogs;
-
-  useEffect(() => { document.documentElement.dataset.theme = theme; window.localStorage.setItem('traceforge-theme', theme); }, [theme]);
-
-  const loadInvestigation = async (logId: string): Promise<void> => {
-    if (!selectedOrg) return;
-    try {
-      const result = await traceforgeApi.investigateLog(selectedOrg, logId);
-      setLiveLogs((current) => current ? current.map((log) => log.id === logId ? mergeInvestigation(log, result.nodes) : log) : current);
-      const first = result.nodes[0];
-      if (logId === activeLogId && first) setSelectedNodeId(first.id);
-    } catch (reason) {
-      setConnectionError(reason instanceof Error ? reason.message : String(reason));
-    }
-  };
-
-  useEffect(() => {
-    let cancelled = false;
-    traceforgeApi.listOrgs().then((nextOrgs) => { if (!cancelled) { setOrgs(nextOrgs); if (!selectedOrg && nextOrgs[0]?.alias) setSelectedOrg(nextOrgs[0].alias); } }).catch((reason) => { if (!cancelled) setConnectionError(reason instanceof Error ? reason.message : String(reason)); });
-    return () => { cancelled = true; };
-  }, [selectedOrg]);
-
-  useEffect(() => {
-    if (!selectedOrg) return;
-    window.localStorage.setItem('traceforge-org', selectedOrg);
-    let cancelled = false;
-    setDataLoading(true); setConnectionError('');
-    traceforgeApi.listLogs(selectedOrg).then((records) => {
-      if (cancelled) return;
-      const mapped = records.map(toLogRecord);
-      setLiveLogs(mapped); setLiveMode(true);
-      const selected = mapped.slice(0, Math.min(4, mapped.length));
-      setSelectedLogIds(selected.map((log) => log.id));
-      const first = mapped[0]; setActiveLogId(first?.id ?? ''); setSelectedNodeId(first?.nodes[0]?.id ?? '');
-      void Promise.all(selected.map((log) => loadInvestigation(log.id)));
-    }).catch((reason) => { if (!cancelled) { setLiveMode(false); setConnectionError(reason instanceof Error ? reason.message : String(reason)); } }).finally(() => { if (!cancelled) setDataLoading(false); });
-    return () => { cancelled = true; };
-  }, [selectedOrg]);
-
-  const activeLog = displayLogs.find((log) => log.id === activeLogId) ?? displayLogs[0];
-  const selectedLogs = displayLogs.filter((log) => selectedLogIds.includes(log.id));
-  const matches = useMemo(() => selectedLogs.flatMap((log) => containsQuery(log, query).map((node) => ({ log, node }))), [selectedLogs, query]);
-  const selectedNode = useMemo(() => { const node = activeLog ? flattenNodes(activeLog.nodes).find((item) => item.id === selectedNodeId) : undefined; return node ?? activeLog?.nodes[0]; }, [activeLog, selectedNodeId]);
-
-  const toggleLog = (id: string) => setSelectedLogIds((current) => current.includes(id) ? current.filter((item) => item !== id) : [...current, id]);
-  const selectLog = (id: string) => { setActiveLogId(id); const first = displayLogs.find((log) => log.id === id)?.nodes[0]; setSelectedNodeId(first?.id ?? ''); if (liveMode) void loadInvestigation(id); };
-  const refreshLogs = () => { if (!selectedOrg) return; setDataLoading(true); traceforgeApi.listLogs(selectedOrg).then((records) => setLiveLogs(records.map(toLogRecord))).catch((reason) => setConnectionError(reason instanceof Error ? reason.message : String(reason))).finally(() => setDataLoading(false)); };
-  const toggleTheme = () => setTheme((current) => current === 'dark' ? 'light' : 'dark');
-
-  const resizeInspector = (event: React.PointerEvent<HTMLDivElement>) => {
-    event.preventDefault(); const startY = event.clientY; const startHeight = inspectorHeight;
-    const onMove = (moveEvent: PointerEvent) => { const delta = startY - moveEvent.clientY; setInspectorHeight(Math.max(180, Math.min(620, startHeight + delta))); };
-    const onUp = () => { window.removeEventListener('pointermove', onMove); window.removeEventListener('pointerup', onUp); document.body.style.cursor = ''; document.body.style.userSelect = ''; };
-    document.body.style.cursor = 'row-resize'; document.body.style.userSelect = 'none'; window.addEventListener('pointermove', onMove); window.addEventListener('pointerup', onUp, { once: true });
-  };
-  useEffect(() => { window.localStorage.setItem('traceforge-inspector-height', String(inspectorHeight)); }, [inspectorHeight]);
-
-  const selectedNodeWithOutput = selectedNode as DisplayNode | undefined;
-  const detailText = selectedNodeWithOutput?.logOutput ?? (selectedNode ? (nodeDetails[selectedNode.id] ?? selectedNode.subtitle ?? activeLog?.summary ?? '') : activeLog?.summary ?? '');
-  const handleTraceCreated = (result: TraceFlagResult) => { setTraceMessage(`Trace flag active until ${result.expirationDate ? new Date(result.expirationDate).toLocaleTimeString() : 'expiration'}.`); setTraceMessageError(false); };
-
-  return (
-    <div className="app-shell">
-      <header className="topbar">
-        <div className="brand"><div className="brand-mark">T</div><div><div className="brand-name">TraceForge</div><div className="brand-subtitle">Salesforce transaction investigation</div></div></div>
-        <div className="context-pills">
-          <label className="org-picker"><span>Org</span><select value={selectedOrg} onChange={(event) => setSelectedOrg(event.target.value)} disabled={!orgs.length}>{!orgs.length && <option value="">No connected org</option>}{orgs.map((org) => <option key={`${org.alias}-${org.username}`} value={org.alias}>{org.alias}</option>)}</select></label>
-          <span className={`mode-pill ${liveMode ? 'live' : 'demo'}`}>{liveMode ? 'Live org' : 'Demo data'}</span>
-          <span className="status-dot"><span /> {dataLoading ? 'Loading' : 'Ready'}</span>
-          <button className="theme-btn" type="button" onClick={toggleTheme} aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`} title={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}><span aria-hidden="true">{theme === 'dark' ? '☀' : '☾'}</span><span>{theme === 'dark' ? 'Light' : 'Dark'}</span></button>
-        </div>
-      </header>
-
-      <main className="workspace">
-        <section className="toolbar">
-          <div className="search-wrap"><span className="search-icon">⌕</span><input aria-label="Search across selected logs" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search class, method, variable, ID, exception..." /><span className="shortcut">⌘ K</span></div>
-          <div className="toolbar-actions"><label className="toggle"><input type="checkbox" checked={showSystem} onChange={(e) => setShowSystem(e.target.checked)} /><span /> Show system calls</label><button className="ghost-btn" type="button" onClick={() => { setTraceMessage(''); setTraceMessageError(false); setTraceModalOpen(true); }} disabled={!selectedOrg}>Trace flag</button><button className="primary-btn" type="button" onClick={refreshLogs} disabled={!selectedOrg || dataLoading}>{dataLoading ? 'Refreshing…' : 'Refresh logs'}</button></div>
-        </section>
-
-        {traceMessage && <div className={`trace-toast ${traceMessageError ? 'error' : ''}`}>{traceMessage}</div>}
-        {connectionError && <div className="connection-banner">{liveMode ? `Analysis warning: ${connectionError}` : `Salesforce API unavailable: ${connectionError}. Showing demo logs.`}</div>}
-
-        <div className="content-grid" style={{ '--inspector-height': `${inspectorHeight}px` } as CSSProperties}>
-          <aside className="logs-panel panel"><div className="panel-header"><div><div className="panel-title">Logs</div><div className="panel-meta">{displayLogs.length} transactions</div></div><button className="icon-btn" title="Filter" type="button">☷</button></div><div className="selection-bar"><span>{selectedLogIds.length} selected</span><button type="button" onClick={() => setSelectedLogIds(displayLogs.map((log) => log.id))}>Select all</button></div><div className="log-list">{displayLogs.map((log) => { const selected = selectedLogIds.includes(log.id); const active = log.id === activeLogId; return <button key={log.id} className={`log-card ${active ? 'active' : ''}`} onClick={() => selectLog(log.id)}><span className="check-wrap" onClick={(e) => { e.stopPropagation(); toggleLog(log.id); }}><span className={`fake-check ${selected ? 'checked' : ''}`}>{selected ? '✓' : ''}</span></span><span className="log-main"><span className="log-time">{log.timestamp}</span><span className="log-entry">{log.entryPoint}</span><span className="log-summary">{log.summary}</span><span className="log-tags"><span className={`result ${log.status.toLowerCase()}`}>{log.status}</span><span>{formatDuration(log.durationMs)}</span><span>{log.sizeKb} KB</span></span></span></button>; })}</div></aside>
-
-          <section className="results-panel panel"><div className="panel-header"><div><div className="panel-title">Search results</div><div className="panel-meta">{matches.length} matches across {selectedLogs.length} selected logs</div></div><span className="match-chip">{query || 'Search'}</span></div><div className="results-list">{matches.length === 0 ? <div className="empty-state">No matching instances in the selected logs.</div> : matches.map(({ log, node }) => <button key={`${log.id}-${node.id}`} className={`match-row ${log.id === activeLogId && node.id === selectedNodeId ? 'selected' : ''}`} onClick={() => { selectLog(log.id); setSelectedNodeId(node.id); }}><span className={`node-icon ${node.kind}`}>{nodeIcon[node.kind]}</span><span className="match-main"><span className="match-name">{node.label}</span><span className="match-context">{log.timestamp} · {log.entryPoint}{node.line ? ` · line ${node.line}` : ''}</span></span><span className="match-duration">{formatDuration(node.durationMs)}</span></button>)}</div></section>
-
-          <section className="tree-panel panel"><div className="panel-header tree-header"><div><div className="panel-title">Transaction</div><div className="panel-meta">{activeLog ? `${activeLog.timestamp} · ${activeLog.operation} · ${activeLog.id}` : 'No log selected'}</div></div><div className="tree-actions"><button className="ghost-btn small" type="button">Collapse</button><button className="ghost-btn small" type="button">Raw log</button></div></div><div className="tree-scroll">{activeLog?.nodes.map((node) => <TreeNode key={node.id} node={node} selectedNodeId={selectedNodeId} onSelect={setSelectedNodeId} depth={0} showSystem={showSystem} />)}</div></section>
-
-          <div className="inspector-resizer" role="separator" aria-orientation="horizontal" aria-label="Resize inspector" onPointerDown={resizeInspector}><span /></div>
-
-          <section className="inspector-panel panel"><div className="panel-header inspector-header"><div><div className="panel-title">Inspector</div><div className="panel-meta">Selected node · variables, exception, or debug output</div></div>{selectedNode?.status === 'error' && <span className="error-badge">Error</span>}</div>{selectedNode && <div className="inspector-content"><div className="inspector-title-row"><span className={`node-icon large ${selectedNode.kind}`}>{nodeIcon[selectedNode.kind]}</span><div><h2>{selectedNode.label}</h2><p>{selectedNode.subtitle}</p></div></div><div className="facts-grid"><div><span>Time</span><strong>{selectedNode.timestamp}</strong></div><div><span>Duration</span><strong>{formatDuration(selectedNode.durationMs)}</strong></div><div><span>Source line</span><strong>{selectedNode.line ?? '—'}</strong></div><div><span>Log</span><strong>{activeLog?.id ?? '—'}</strong></div></div><div className="inspector-section"><div className="section-heading">Variables & values</div><div className="variable-table">{selectedNode.variables.length === 0 ? <div className="muted-text">No variables captured at this node.</div> : selectedNode.variables.map((variable) => <div className="variable-row" key={`${variable.name}-${variable.type}`}><span className="variable-name">{variable.name}</span><span className="variable-type">{variable.type}</span><code>{variable.value}</code></div>)}</div></div><div className="inspector-section log-output-section"><div className="section-heading">Log output</div><pre className="log-output">{detailText}</pre></div></div>}</section>
-        </div>
-      </main>
-
-      {selectedOrg && <TraceFlagModal org={selectedOrg} open={traceModalOpen} onClose={() => setTraceModalOpen(false)} onCreated={handleTraceCreated} />}
-    </div>
-  );
-}
-
-function TreeNode({ node, selectedNodeId, onSelect, depth, showSystem }: { node: InvestigationNode; selectedNodeId: string; onSelect: (id: string) => void; depth: number; showSystem: boolean }) {
-  return <div className="tree-node-wrap"><button className={`tree-node ${selectedNodeId === node.id ? 'selected' : ''} ${node.status === 'error' ? 'error' : ''}`} style={{ paddingLeft: `${10 + depth * 20}px` }} onClick={() => onSelect(node.id)}><span className={`chevron ${node.children.length ? '' : 'empty'}`}>{node.children.length ? '▾' : '·'}</span><span className={`node-icon ${node.kind}`}>{nodeIcon[node.kind]}</span><span className="tree-label"><span>{node.label}</span><small>{node.subtitle}</small></span>{node.line && <span className="tree-line">L{node.line}</span>}<span className="tree-time">{formatDuration(node.durationMs)}</span></button>{node.children.length > 0 && node.children.map((child) => <TreeNode key={child.id} node={child} selectedNodeId={selectedNodeId} onSelect={onSelect} depth={depth + 1} showSystem={showSystem} />)}</div>;
-}
-
+function TreeNode({node,selectedNodeId,onSelect,depth,collapsed,onToggle}:{node:InvestigationNode;selectedNodeId:string;onSelect:(id:string)=>void;depth:number;collapsed:Record<string,boolean>;onToggle:(id:string)=>void}){const hidden=collapsed[node.id];return <div className="tree-node-wrap"><button className={`tree-node ${selectedNodeId===node.id?'selected':''} ${node.status==='error'?'error':''}`} style={{paddingLeft:`${10+depth*20}px`}} onClick={()=>onSelect(node.id)}><span className={`chevron ${node.children.length?'':'empty'}`} onClick={e=>{e.stopPropagation();if(node.children.length)onToggle(node.id)}}>{node.children.length?(hidden?'▸':'▾'):'·'}</span><span className={`node-icon ${node.kind}`}>{nodeIcon[node.kind]}</span><span className="tree-label"><span>{node.label}</span><small>{node.subtitle}</small></span>{node.line&&<span className="tree-line">L{node.line}</span>}<span className="tree-time">{formatDuration(node.durationMs)}</span></button>{!hidden&&node.children.map(child=><TreeNode key={child.id} node={child} selectedNodeId={selectedNodeId} onSelect={onSelect} depth={depth+1} collapsed={collapsed} onToggle={onToggle}/>)}</div>}
 export default App;
