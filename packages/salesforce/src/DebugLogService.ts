@@ -2,8 +2,9 @@ import { SalesforceCli, SalesforceCliError, type SalesforceCliRunner } from './S
 
 export interface SalesforceOrg {
   alias: string;
-  username?: string;
+  username: string;
   instanceUrl?: string;
+  isDefaultUsername: boolean;
 }
 
 export interface DebugLogInfo {
@@ -32,10 +33,6 @@ interface SalesforceCliDebugLog {
   LogLength?: unknown;
 }
 
-/**
- * Retrieves Apex debug logs through the locally authenticated Salesforce CLI.
- * No credentials are read or managed by TraceForge.
- */
 export class DebugLogService {
   constructor(private readonly cli: SalesforceCliRunner = new SalesforceCli()) {}
 
@@ -60,12 +57,16 @@ export class DebugLogService {
         orgs.set(candidate.username, {
           alias,
           username: candidate.username,
-          instanceUrl: this.stringValue(candidate.instanceUrl)
+          instanceUrl: this.stringValue(candidate.instanceUrl),
+          isDefaultUsername: candidate.isDefaultUsername === true
         });
       }
     }
 
-    return [...orgs.values()].sort((a, b) => a.alias.localeCompare(b.alias));
+    return [...orgs.values()].sort((a, b) => {
+      if (a.isDefaultUsername !== b.isDefaultUsername) return a.isDefaultUsername ? -1 : 1;
+      return a.alias.localeCompare(b.alias);
+    });
   }
 
   async listLogs(org?: string): Promise<DebugLogInfo[]> {
@@ -87,27 +88,20 @@ export class DebugLogService {
 
   async fetchLog(org: string | undefined, logId: string): Promise<string> {
     const targetOrgArgs = org ? ['--target-org', org] : [];
-    const output = await this.cli.run([
-      'apex', 'get', 'log', ...targetOrgArgs, '--log-id', logId
-    ]);
-
+    const output = await this.cli.run(['apex', 'get', 'log', ...targetOrgArgs, '--log-id', logId]);
     return this.extractLogContent(output);
   }
 
   private extractLogContent(output: string): string {
     try {
       const value: unknown = JSON.parse(output);
-
       if (this.isObject(value) && 'result' in value) {
         const response = value as unknown as SalesforceCliEnvelope;
-
         if (typeof response.result === 'string') return response.result;
-
         if (Array.isArray(response.result)) {
           const first = response.result[0];
           if (this.isObject(first) && typeof first.log === 'string') return first.log;
         }
-
         if (this.isObject(response.result)) {
           for (const property of ['log', 'content', 'output']) {
             const content = response.result[property];
@@ -118,28 +112,21 @@ export class DebugLogService {
     } catch {
       // The Salesforce CLI normally returns the log body directly.
     }
-
     return output;
   }
 
   private parseJson(output: string, operation: string): SalesforceCliEnvelope {
     try {
       const value: unknown = JSON.parse(output);
-      if (!this.isObject(value) || !('result' in value)) {
-        throw new Error('Missing result property');
-      }
+      if (!this.isObject(value) || !('result' in value)) throw new Error('Missing result property');
       return value as unknown as SalesforceCliEnvelope;
     } catch (error) {
-      throw new SalesforceCliError(
-        `Could not parse Salesforce CLI JSON while attempting to ${operation}.`,
-        error
-      );
+      throw new SalesforceCliError(`Could not parse Salesforce CLI JSON while attempting to ${operation}.`, error);
     }
   }
 
   private toDebugLog(value: unknown): DebugLogInfo | undefined {
     if (!this.isObject(value) || typeof value.Id !== 'string') return undefined;
-
     const log = value as SalesforceCliDebugLog;
     return {
       id: value.Id,
@@ -153,15 +140,7 @@ export class DebugLogService {
     };
   }
 
-  private stringValue(value: unknown): string | undefined {
-    return typeof value === 'string' ? value : undefined;
-  }
-
-  private numberValue(value: unknown): number | undefined {
-    return typeof value === 'number' ? value : undefined;
-  }
-
-  private isObject(value: unknown): value is Record<string, unknown> {
-    return typeof value === 'object' && value !== null;
-  }
+  private stringValue(value: unknown): string | undefined { return typeof value === 'string' ? value : undefined; }
+  private numberValue(value: unknown): number | undefined { return typeof value === 'number' ? value : undefined; }
+  private isObject(value: unknown): value is Record<string, unknown> { return typeof value === 'object' && value !== null; }
 }
