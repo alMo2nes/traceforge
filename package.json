@@ -11,11 +11,13 @@
     "cli": "tsx apps/cli/src/index.ts",
     "api": "pnpm --dir apps/api dev",
     "web": "pnpm --dir apps/web dev",
+    "dev": "concurrently -n API,WEB -c blue,magenta \"pnpm api\" \"pnpm web\"",
     "web:build": "pnpm --dir apps/web build",
     "web:preview": "pnpm --dir apps/web preview"
   },
   "devDependencies": {
     "@types/node": "^24.13.3",
+    "concurrently": "^9.2.1",
     "tsx": "^4.23.11",
     "typescript": "^5.9.3",
     "vitest": "^3.2.7"
