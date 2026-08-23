@@ -29,15 +29,16 @@ export class SalesforceCli implements SalesforceCliRunner {
     try {
       return await new Promise<string>((resolve, reject) => {
         this.execute('sf', [...args], { maxBuffer: 32 * 1024 * 1024 }, (error, stdout, stderr) => {
-          if (stderr?.trim()) console.warn(`[SF CLI stderr] ${stderr.trim()}`);
+          if (stderr?.trim()) console.warn(`[SF CLI stderr] ${this.redact(stderr.trim())}`);
           if (error) {
-            const wrapped = new Error(stderr?.trim() ? `${error.message}\n${stderr.trim()}` : error.message);
+            const wrapped = new Error(stderr?.trim() ? `${error.message}\n${this.redact(stderr.trim())}` : error.message);
             Object.assign(wrapped, { stderr });
             reject(wrapped);
             return;
           }
           if (stdout?.trim()) {
-            const preview = stdout.trim().length > 1200 ? `${stdout.trim().slice(0, 1200)}…` : stdout.trim();
+            const redacted = this.redact(stdout.trim());
+            const preview = redacted.length > 1200 ? `${redacted.slice(0, 1200)}…` : redacted;
             console.debug(`[SF CLI stdout] ${preview}`);
           }
           resolve(stdout);
@@ -47,6 +48,14 @@ export class SalesforceCli implements SalesforceCliRunner {
       console.error(`[SF CLI failed] ${command}`);
       throw new SalesforceCliError(this.errorMessage(args, error), error);
     }
+  }
+
+  private redact(value: string): string {
+    return value
+      .replace(/("accessToken"\s*:\s*")[^"]*(")/gi, '$1[REDACTED]$2')
+      .replace(/("refreshToken"\s*:\s*")[^"]*(")/gi, '$1[REDACTED]$2')
+      .replace(/(accessToken\s*[:=]\s*)[^\s,}]+/gi, '$1[REDACTED]')
+      .replace(/(refreshToken\s*[:=]\s*)[^\s,}]+/gi, '$1[REDACTED]');
   }
 
   private errorMessage(args: readonly string[], error: unknown): string {
