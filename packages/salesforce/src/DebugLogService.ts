@@ -116,13 +116,38 @@ export class DebugLogService {
   }
 
   private parseJson(output: string, operation: string): SalesforceCliEnvelope {
+    const normalized = output
+      .replace(/^\uFEFF/, '')
+      .replace(/\x1B\[[0-?]*[ -/]*[@-~]/g, '')
+      .trim();
+
     try {
-      const value: unknown = JSON.parse(output);
-      if (!this.isObject(value) || !('result' in value)) throw new Error('Missing result property');
-      return value as unknown as SalesforceCliEnvelope;
+      return this.parseJsonValue(normalized);
     } catch (error) {
-      throw new SalesforceCliError(`Could not parse Salesforce CLI JSON while attempting to ${operation}.`, error);
+      const firstObject = normalized.indexOf('{');
+      const lastObject = normalized.lastIndexOf('}');
+
+      if (firstObject >= 0 && lastObject > firstObject) {
+        try {
+          return this.parseJsonValue(normalized.slice(firstObject, lastObject + 1));
+        } catch {
+          // Fall through with the original parse error.
+        }
+      }
+
+      throw new SalesforceCliError(
+        `Could not parse Salesforce CLI JSON while attempting to ${operation}.`,
+        error
+      );
     }
+  }
+
+  private parseJsonValue(input: string): SalesforceCliEnvelope {
+    const value: unknown = JSON.parse(input);
+    if (!this.isObject(value) || !('result' in value)) {
+      throw new Error('Missing result property');
+    }
+    return value as unknown as SalesforceCliEnvelope;
   }
 
   private toDebugLog(value: unknown): DebugLogInfo | undefined {
