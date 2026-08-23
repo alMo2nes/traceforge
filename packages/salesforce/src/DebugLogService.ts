@@ -1,4 +1,5 @@
 import { SalesforceCli, SalesforceCliError, type SalesforceCliRunner } from './SalesforceCli.js';
+import { SalesforceConnectionService } from './SalesforceConnection.js';
 
 export interface SalesforceOrg {
   alias: string;
@@ -18,30 +19,30 @@ export interface DebugLogInfo {
   logLength?: number;
 }
 
-interface SalesforceCliEnvelope {
-  result: unknown;
+interface ApexLogRecord {
+  Id: string;
+  LogUserId?: string;
+  LogUser?: { Name?: string };
+  Operation?: string;
+  Status?: string;
+  StartTime?: string;
+  DurationMilliseconds?: number;
+  LogLength?: number;
 }
 
-interface SalesforceCliDebugLog {
-  Id?: unknown;
-  LogUserId?: unknown;
-  LogUser?: { Name?: unknown };
-  Operation?: unknown;
-  Status?: unknown;
-  StartTime?: unknown;
-  DurationMilliseconds?: unknown;
-  LogLength?: unknown;
-}
-
+/**
+ * Retrieves and analyzes Salesforce debug logs through JSforce.
+ * The Salesforce CLI is used only for local authentication/session discovery.
+ */
 export class DebugLogService {
-  constructor(private readonly cli: SalesforceCliRunner = new SalesforceCli()) {}
+  constructor(
+    private readonly cli: SalesforceCliRunner = new SalesforceCli(),
+    private readonly connectionService = new SalesforceConnectionService(cli)
+  ) {}
 
+  /** Connected-org discovery still comes from the local sf auth store. */
   async listOrgs(): Promise<SalesforceOrg[]> {
-    const response = this.parseJson(
-      await this.cli.run(['org', 'list', '--json']),
-      'list authenticated orgs'
-    );
-
+    const response = this.parseCliJson(await this.cli.run(['org', 'list', '--json']), 'list authenticated orgs');
     if (!this.isObject(response.result)) {
       throw new SalesforceCliError('Salesforce CLI returned an invalid org list.');
     }
@@ -49,10 +50,8 @@ export class DebugLogService {
     const orgs = new Map<string, SalesforceOrg>();
     for (const group of Object.values(response.result)) {
       if (!Array.isArray(group)) continue;
-
       for (const candidate of group) {
         if (!this.isObject(candidate) || typeof candidate.username !== 'string') continue;
-
         const alias = typeof candidate.alias === 'string' ? candidate.alias : candidate.username;
         orgs.set(candidate.username, {
           alias,
@@ -70,102 +69,48 @@ export class DebugLogService {
   }
 
   async listLogs(org?: string): Promise<DebugLogInfo[]> {
-    const targetOrgArgs = org ? ['--target-org', org] : [];
-    const response = this.parseJson(
-      await this.cli.run(['apex', 'list', 'log', ...targetOrgArgs, '--json']),
-      `list debug logs${org ? ` for ${org}` : ''}`
+    if (!org) return [];
+    console.info(`[LOGS] list logs org=${org}`);
+    const connection = await this.connectionService.connect(org);
+    const result = await connection.tooling.query<ApexLogRecord>(
+      'SELECT Id, LogUserId, LogUser.Name, Operation, Status, StartTime, DurationMilliseconds, LogLength FROM ApexLog ORDER BY StartTime DESC'
     );
+    return result.records.map((log) => ({
+      id: log.Id,
+      userId: log.LogUserId,
+      userName: log.LogUser?.Name,
+      operation: log.Operation,
+      status: log.Status,
+      startTime: log.StartTime,
+      durationMs: log.DurationMilliseconds,
+      logLength: log.LogLength
+    }));
+  }
 
-    if (!Array.isArray(response.result)) {
-      throw new SalesforceCliError('Salesforce CLI returned an invalid debug log list.');
+  async fetchLog(org: string, logId: string): Promise<string> {
+    console.info(`[LOGS] fetch log org=${org} id=${logId}`);
+    const connection = await this.connectionService.connect(org);
+    const body = await connection.request<string>(`/services/data/${connection.version}/tooling/sobjects/ApexLog/${encodeURIComponent(logId)}/Body`);
+    if (typeof body !== 'string') {
+      throw new SalesforceCliError(`Salesforce Tooling API returned a non-text ApexLog body for ${logId}.`);
     }
-
-    return response.result
-      .map((value) => this.toDebugLog(value))
-      .filter((value): value is DebugLogInfo => value !== undefined)
-      .sort((a, b) => (b.startTime ?? '').localeCompare(a.startTime ?? ''));
+    return body;
   }
 
-  async fetchLog(org: string | undefined, logId: string): Promise<string> {
-    const targetOrgArgs = org ? ['--target-org', org] : [];
-    const output = await this.cli.run(['apex', 'get', 'log', ...targetOrgArgs, '--log-id', logId]);
-    return this.extractLogContent(output);
-  }
-
-  private extractLogContent(output: string): string {
+  private parseCliJson(output: string, operation: string): { result: unknown } {
     try {
-      const value: unknown = JSON.parse(output);
-      if (this.isObject(value) && 'result' in value) {
-        const response = value as unknown as SalesforceCliEnvelope;
-        if (typeof response.result === 'string') return response.result;
-        if (Array.isArray(response.result)) {
-          const first = response.result[0];
-          if (this.isObject(first) && typeof first.log === 'string') return first.log;
-        }
-        if (this.isObject(response.result)) {
-          for (const property of ['log', 'content', 'output']) {
-            const content = response.result[property];
-            if (typeof content === 'string') return content;
-          }
-        }
-      }
-    } catch {
-      // The Salesforce CLI normally returns the log body directly.
-    }
-    return output;
-  }
-
-  private parseJson(output: string, operation: string): SalesforceCliEnvelope {
-    const normalized = output
-      .replace(/^\uFEFF/, '')
-      .replace(/\x1B\[[0-?]*[ -/]*[@-~]/g, '')
-      .trim();
-
-    try {
-      return this.parseJsonValue(normalized);
+      const cleaned = output.replace(/^\uFEFF/, '').replace(/\u001b\[[0-?]*[ -/]*[@-~]/g, '').trim();
+      const start = cleaned.indexOf('{');
+      const end = cleaned.lastIndexOf('}');
+      const json = start >= 0 && end >= start ? cleaned.slice(start, end + 1) : cleaned;
+      const value: unknown = JSON.parse(json);
+      if (!this.isObject(value) || !('result' in value)) throw new Error('Missing result property');
+      return value as { result: unknown };
     } catch (error) {
-      const firstObject = normalized.indexOf('{');
-      const lastObject = normalized.lastIndexOf('}');
-
-      if (firstObject >= 0 && lastObject > firstObject) {
-        try {
-          return this.parseJsonValue(normalized.slice(firstObject, lastObject + 1));
-        } catch {
-          // Fall through with the original parse error.
-        }
-      }
-
-      throw new SalesforceCliError(
-        `Could not parse Salesforce CLI JSON while attempting to ${operation}.`,
-        error
-      );
+      throw new SalesforceCliError(`Could not parse Salesforce CLI JSON while attempting to ${operation}.`, error);
     }
-  }
-
-  private parseJsonValue(input: string): SalesforceCliEnvelope {
-    const value: unknown = JSON.parse(input);
-    if (!this.isObject(value) || !('result' in value)) {
-      throw new Error('Missing result property');
-    }
-    return value as unknown as SalesforceCliEnvelope;
-  }
-
-  private toDebugLog(value: unknown): DebugLogInfo | undefined {
-    if (!this.isObject(value) || typeof value.Id !== 'string') return undefined;
-    const log = value as SalesforceCliDebugLog;
-    return {
-      id: value.Id,
-      userId: this.stringValue(log.LogUserId),
-      userName: this.stringValue(log.LogUser?.Name),
-      operation: this.stringValue(log.Operation),
-      status: this.stringValue(log.Status),
-      startTime: this.stringValue(log.StartTime),
-      durationMs: this.numberValue(log.DurationMilliseconds),
-      logLength: this.numberValue(log.LogLength)
-    };
   }
 
   private stringValue(value: unknown): string | undefined { return typeof value === 'string' ? value : undefined; }
-  private numberValue(value: unknown): number | undefined { return typeof value === 'number' ? value : undefined; }
   private isObject(value: unknown): value is Record<string, unknown> { return typeof value === 'object' && value !== null; }
 }
