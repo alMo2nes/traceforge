@@ -88,6 +88,25 @@ describe('DebugLogService', () => {
     ]);
   });
 
+  it('discovers the default username and sorts it first', async () => {
+    const cli: SalesforceCliRunner = {
+      run: vi.fn().mockResolvedValue(JSON.stringify({
+        status: 0,
+        result: {
+          scratchOrgs: [
+            { alias: 'other-org', username: 'other@example.com', isDefaultUsername: false },
+            { alias: 'default-org', username: 'default@example.com', isDefaultUsername: true }
+          ]
+        }
+      }))
+    };
+
+    const orgs = await new DebugLogService(cli).listOrgs();
+
+    expect(orgs[0]).toMatchObject({ alias: 'default-org', username: 'default@example.com', isDefaultUsername: true });
+    expect(orgs[1]).toMatchObject({ alias: 'other-org', username: 'other@example.com', isDefaultUsername: false });
+  });
+
   it('extracts a log from the Salesforce CLI JSON response', async () => {
     const cli: SalesforceCliRunner = {
       run: vi.fn().mockResolvedValue(JSON.stringify({ status: 0, result: '42.0|EXECUTION_STARTED' }))
