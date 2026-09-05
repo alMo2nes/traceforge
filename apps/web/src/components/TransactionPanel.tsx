@@ -1,4 +1,5 @@
 import type { InvestigationNode, LogRecord } from '../data';
+import { LoadingSpinner } from './LoadingSpinner';
 
 const nodeIcon: Record<InvestigationNode['kind'], string> = { transaction: 'TX', 'code-unit': 'CU', method: 'fn', soql: 'DB', dml: 'DML', flow: 'FLW', exception: '!' };
 
@@ -7,6 +8,7 @@ interface TransactionPanelProps {
   selectedNodeId: string;
   collapsed: Record<string, boolean>;
   showSystem: boolean;
+  loading: boolean;
   onSelectNode: (id: string) => void;
   onToggleNode: (id: string) => void;
   onCollapseAll: () => void;
@@ -16,18 +18,19 @@ interface TransactionPanelProps {
 
 function formatDuration(value?: number): string { return value === undefined ? '—' : `${value.toFixed(2)} ms`; }
 
-export function TransactionPanel({ activeLog, selectedNodeId, collapsed, showSystem, onSelectNode, onToggleNode, onCollapseAll, onExpandAll, onRawLog }: TransactionPanelProps) {
+export function TransactionPanel({ activeLog, selectedNodeId, collapsed, showSystem, loading, onSelectNode, onToggleNode, onCollapseAll, onExpandAll, onRawLog }: TransactionPanelProps) {
   return (
     <section className="tree-panel panel">
       <div className="panel-header tree-header">
         <div><div className="panel-title">Transaction</div><div className="panel-meta">{activeLog ? `${activeLog.timestamp} · ${activeLog.operation} · ${activeLog.id}` : 'No log selected'}</div></div>
         <div className="tree-actions">
-          <button className="ghost-btn small" type="button" onClick={onCollapseAll} disabled={!activeLog}>Collapse</button>
-          <button className="ghost-btn small" type="button" onClick={onExpandAll} disabled={!activeLog}>Expand</button>
-          <button className="ghost-btn small" type="button" onClick={onRawLog} disabled={!activeLog}>Raw log</button>
+          <button className="ghost-btn small" type="button" onClick={onCollapseAll} disabled={!activeLog || loading}>Collapse</button>
+          <button className="ghost-btn small" type="button" onClick={onExpandAll} disabled={!activeLog || loading}>Expand</button>
+          <button className="ghost-btn small" type="button" onClick={onRawLog} disabled={!activeLog || loading}>Raw log</button>
         </div>
       </div>
       <div className="tree-scroll">{activeLog?.nodes.map((node) => <TreeNode key={node.id} node={node} selectedNodeId={selectedNodeId} onSelect={onSelectNode} depth={0} collapsed={collapsed} onToggle={onToggleNode} showSystem={showSystem} />)}</div>
+      {loading && <LoadingSpinner label="Analyzing transaction…" />}
     </section>
   );
 }
