@@ -16,8 +16,6 @@ import './integration.css';
 
 type UiNode = InvestigationNode & { logOutput?: string };
 
-function formatDuration(value?: number): string { return value === undefined ? '—' : `${value.toFixed(2)} ms`; }
-
 function localTime(value?: string): string {
   if (!value) return '—';
   const date = new Date(value);
@@ -186,7 +184,7 @@ function App() {
   const matches = useMemo<SearchMatch[]>(() => selectedLogs.flatMap((log) => containsQuery(log, query).map((node) => ({ log, node }))), [selectedLogs, query]);
   const selectedNode = useMemo(() => activeLog ? flattenNodes(activeLog.nodes).find((node) => node.id === selectedNodeId) ?? activeLog.nodes[0] : undefined, [activeLog, selectedNodeId]);
   const inspectorVariables = useMemo(() => selectedNode ? visibleVariables(activeLog?.nodes ?? [], selectedNode.id) : [], [activeLog, selectedNode]);
-  const detail = (selectedNode as UiNode | undefined)?.logOutput ?? selectedNode?.subtitle ?? '';
+  const detail = (selectedNode as UiNode | undefined)?.logOutput ?? '';
 
   const selectOrg = (value: string) => {
     setSelectedOrg(value);
@@ -310,6 +308,7 @@ function App() {
                 logs={displayLogs}
                 selectedLogIds={selectedLogIds}
                 activeLogId={activeLogId}
+                loading={dataLoading}
                 onSelectLog={selectLog}
                 onToggleLog={toggleLog}
               />
@@ -320,6 +319,7 @@ function App() {
                 selectedLogCount={selectedLogs.length}
                 activeLogId={activeLogId}
                 selectedNodeId={selectedNodeId}
+                loading={dataLoading || analysisLoading}
                 onSelectMatch={handleSearchMatch}
               />
 
@@ -328,6 +328,7 @@ function App() {
                 selectedNodeId={selectedNodeId}
                 collapsed={collapsed}
                 showSystem={showSystem}
+                loading={dataLoading || analysisLoading}
                 onSelectNode={setSelectedNodeId}
                 onToggleNode={toggleNode}
                 onCollapseAll={collapseAll}
@@ -339,7 +340,7 @@ function App() {
                 selectedNode={selectedNode}
                 activeLog={activeLog}
                 variables={inspectorVariables}
-                analysisLoading={analysisLoading}
+                loading={analysisLoading}
                 detail={detail}
                 onResizeStart={resizeInspector}
               />
