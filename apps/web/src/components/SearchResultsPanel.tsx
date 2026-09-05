@@ -2,7 +2,7 @@ import type { InvestigationNode, LogRecord } from '../data';
 
 const nodeIcon: Record<InvestigationNode['kind'], string> = { transaction: 'TX', 'code-unit': 'CU', method: 'fn', soql: 'DB', dml: 'DML', flow: 'FLW', exception: '!' };
 
-interface SearchMatch { log: LogRecord; node: InvestigationNode; }
+export interface SearchMatch { log: LogRecord; node: InvestigationNode; }
 
 interface SearchResultsPanelProps {
   matches: SearchMatch[];
