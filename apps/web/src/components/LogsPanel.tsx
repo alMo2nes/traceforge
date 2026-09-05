@@ -1,16 +1,18 @@
 import type { LogRecord } from '../data';
+import { LoadingSpinner } from './LoadingSpinner';
 
 interface LogsPanelProps {
   logs: LogRecord[];
   selectedLogIds: string[];
   activeLogId: string;
+  loading: boolean;
   onSelectLog: (id: string) => void;
   onToggleLog: (id: string) => void;
 }
 
 function formatDuration(value?: number): string { return value === undefined ? '—' : `${value.toFixed(2)} ms`; }
 
-export function LogsPanel({ logs, selectedLogIds, activeLogId, onSelectLog, onToggleLog }: LogsPanelProps) {
+export function LogsPanel({ logs, selectedLogIds, activeLogId, loading, onSelectLog, onToggleLog }: LogsPanelProps) {
   return (
     <aside className="logs-panel panel">
       <div className="panel-header">
@@ -35,6 +37,7 @@ export function LogsPanel({ logs, selectedLogIds, activeLogId, onSelectLog, onTo
           </button>
         ))}
       </div>
+      {loading && <LoadingSpinner label="Loading logs…" />}
     </aside>
   );
 }
