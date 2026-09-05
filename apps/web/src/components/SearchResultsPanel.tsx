@@ -1,4 +1,5 @@
 import type { InvestigationNode, LogRecord } from '../data';
+import { LoadingSpinner } from './LoadingSpinner';
 
 const nodeIcon: Record<InvestigationNode['kind'], string> = { transaction: 'TX', 'code-unit': 'CU', method: 'fn', soql: 'DB', dml: 'DML', flow: 'FLW', exception: '!' };
 
@@ -10,12 +11,13 @@ interface SearchResultsPanelProps {
   selectedLogCount: number;
   activeLogId: string;
   selectedNodeId: string;
+  loading: boolean;
   onSelectMatch: (logId: string, nodeId: string) => void;
 }
 
 function formatDuration(value?: number): string { return value === undefined ? '—' : `${value.toFixed(2)} ms`; }
 
-export function SearchResultsPanel({ matches, query, selectedLogCount, activeLogId, selectedNodeId, onSelectMatch }: SearchResultsPanelProps) {
+export function SearchResultsPanel({ matches, query, selectedLogCount, activeLogId, selectedNodeId, loading, onSelectMatch }: SearchResultsPanelProps) {
   return (
     <section className="results-panel panel">
       <div className="panel-header">
@@ -31,6 +33,7 @@ export function SearchResultsPanel({ matches, query, selectedLogCount, activeLog
           </button>
         ))}
       </div>
+      {loading && <LoadingSpinner label="Loading results…" />}
     </section>
   );
 }
