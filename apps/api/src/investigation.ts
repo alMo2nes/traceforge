@@ -57,27 +57,37 @@ function variablesFromChildren(node: ScannerNode): UiVariable[] {
     });
 }
 
-function debugOutputFromChildren(node: ScannerNode): string[] {
-  const output: string[] = [];
-  for (const child of node.children) {
-    if (child.type === 'debug' || child.type === 'exception') output.push(...rawOutput(child.events));
-  }
-  return output;
+function nodeLineRange(node: ScannerNode): { start: number; end: number } | undefined {
+  const lineNumbers = node.events.map((event) => event.lineNumber).filter((line): line is number => Number.isFinite(line));
+  if (lineNumbers.length === 0) return undefined;
+  return {
+    start: Math.min(...lineNumbers),
+    end: Math.max(...lineNumbers)
+  };
 }
 
-function uiNode(node: ScannerNode, baseTimestamp: number): UiInvestigationNode | undefined {
+function rawLogSlice(content: string, node: ScannerNode): string | undefined {
+  const range = nodeLineRange(node);
+  if (!range) return undefined;
+
+  const lines = content.split(/\r?\n/);
+  const output = lines.slice(range.start - 1, range.end).join('\n');
+  return output || undefined;
+}
+
+function uiNode(node: ScannerNode, baseTimestamp: number, content: string): UiInvestigationNode | undefined {
   const kind = kindFor(node);
   if (!kind) return undefined;
 
   const children = node.children
     .map((child) => {
       if (child.type === 'system' || child.type === 'statement' || child.type === 'variable' || child.type === 'limit' || child.type === 'savepoint') return undefined;
-      return uiNode(child, baseTimestamp);
+      return uiNode(child, baseTimestamp, content);
     })
     .filter((child): child is UiInvestigationNode => child !== undefined);
 
   const variables = variablesFromChildren(node);
-  const output = [...rawOutput(node.events), ...debugOutputFromChildren(node)];
+  const output = rawLogSlice(content, node) ?? [...rawOutput(node.events)].join('\n');
   const exception = node.type === 'exception' || node.children.some((child) => child.type === 'exception');
 
   return {
@@ -90,7 +100,7 @@ function uiNode(node: ScannerNode, baseTimestamp: number): UiInvestigationNode |
     durationMs: durationMs(node),
     status: exception ? 'error' : 'ok',
     variables,
-    logOutput: output.length ? output.join('\n') : undefined,
+    logOutput: output,
     children
   };
 }
@@ -100,6 +110,6 @@ export function analyzeLog(content: string): UiInvestigationNode[] {
   const raw = scanner.scan(content);
   const semantic = decodeSemanticEvents(raw.events);
   return correlateInvestigationEvents(semantic)
-    .map((root) => root.startTimestamp === undefined ? undefined : uiNode(root, root.startTimestamp))
+    .map((root) => root.startTimestamp === undefined ? undefined : uiNode(root, root.startTimestamp, content))
     .filter((node): node is UiInvestigationNode => node !== undefined);
 }
