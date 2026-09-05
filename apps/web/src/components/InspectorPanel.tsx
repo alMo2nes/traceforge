@@ -1,4 +1,6 @@
+import type { PointerEvent as ReactPointerEvent } from 'react';
 import type { InvestigationNode, VariableValue, LogRecord } from '../data';
+import { LoadingSpinner } from './LoadingSpinner';
 
 const nodeIcon: Record<InvestigationNode['kind'], string> = { transaction: 'TX', 'code-unit': 'CU', method: 'fn', soql: 'DB', dml: 'DML', flow: 'FLW', exception: '!' };
 
@@ -6,14 +8,14 @@ interface InspectorPanelProps {
   selectedNode?: InvestigationNode & { logOutput?: string };
   activeLog?: LogRecord;
   variables: VariableValue[];
-  analysisLoading: boolean;
+  loading: boolean;
   detail: string;
-  onResizeStart: (event: React.PointerEvent<HTMLDivElement>) => void;
+  onResizeStart: (event: ReactPointerEvent<HTMLDivElement>) => void;
 }
 
 function formatDuration(value?: number): string { return value === undefined ? '—' : `${value.toFixed(2)} ms`; }
 
-export function InspectorPanel({ selectedNode, activeLog, variables, analysisLoading, detail, onResizeStart }: InspectorPanelProps) {
+export function InspectorPanel({ selectedNode, activeLog, variables, loading, detail, onResizeStart }: InspectorPanelProps) {
   return (
     <>
       <div className="inspector-resizer" role="separator" aria-orientation="horizontal" aria-label="Resize inspector" onPointerDown={onResizeStart}><span /></div>
@@ -24,12 +26,16 @@ export function InspectorPanel({ selectedNode, activeLog, variables, analysisLoa
           {selectedNode?.status === 'error' && <span className="error-badge">Error</span>}
         </div>
         {selectedNode && <div className="inspector-content">
-          <div className="inspector-section">
+          <div className="inspector-section variables-section">
             <div className="section-heading">Variables & values <span className="section-count">{variables.length}</span></div>
             <div className="variable-table">{variables.length === 0 ? <div className="muted-text">No visible variables captured for this scope.</div> : variables.map((variable) => <div className="variable-row" key={`${variable.name}-${variable.type}`}><span className="variable-name">{variable.name}</span><span className="variable-type">{variable.type}</span><code>{variable.value}</code></div>)}</div>
           </div>
-          <div className="inspector-section log-output-section"><div className="section-heading">Log output</div><pre className="log-output">{analysisLoading ? 'Loading investigation…' : detail}</pre></div>
+          <div className="inspector-section log-output-section">
+            <div className="section-heading">Log output</div>
+            <pre className="log-output">{detail || 'No raw log output captured for this node.'}</pre>
+          </div>
         </div>}
+        {loading && <LoadingSpinner label="Analyzing transaction…" />}
       </section>
     </>
   );
