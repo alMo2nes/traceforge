@@ -123,6 +123,14 @@ export function activate(context: vscode.ExtensionContext): void {
             });
           }
         },
+        onOpenNode: (selectedLogId, nodeId) => {
+          if (selectedLogId === pendingLog?.logId) return;
+          void transactionPanel?.webview.postMessage({
+            type: 'open-node',
+            logId: selectedLogId,
+            nodeId,
+          });
+        },
         onNodeSelected: (payload) => {
           inspector.postMessage({ type: 'node-selected', ...payload });
           void vscode.commands.executeCommand('workbench.action.focusPanel');
