@@ -308,7 +308,7 @@ export function VscodeInspectorSurface(): ReactElement {
 
   return (
     <div className="vscode-surface inspector-surface">
-      <InspectorPanel selectedNode={node} activeLog={activeLog} variables={variables} loading={false} detail={detail} governorLimits={undefined} onResizeStart={() => undefined} />
+      <InspectorPanel selectedNode={node} activeLog={activeLog} variables={variables} loading={false} detail={detail} governorLimits={undefined} />
     </div>
   );
 }
