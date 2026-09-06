@@ -16,26 +16,56 @@ const WEB_ROOT = 'media/web';
 
 export class TraceForgeInspectorProvider implements vscode.WebviewViewProvider {
   private webview?: vscode.Webview;
+  private ready = false;
+  private pending: unknown[] = [];
 
-  constructor(private readonly context: vscode.ExtensionContext) {}
+  constructor(
+    private readonly context: vscode.ExtensionContext,
+    private readonly services: ExtensionServices,
+  ) {}
 
   resolveWebviewView(webviewView: vscode.WebviewView): void {
     this.webview = webviewView.webview;
+    this.ready = false;
     webviewView.webview.options = {
       enableScripts: true,
       localResourceRoots: [
         vscode.Uri.joinPath(this.context.extensionUri, WEB_ROOT),
       ],
     };
+
+    const bridge = createWebviewHandler(
+      this.webview,
+      this.services,
+      this.context,
+      {
+        onReady: () => {
+          this.ready = true;
+          for (const message of this.pending.splice(0)) {
+            void this.webview?.postMessage(message);
+          }
+        },
+      },
+    );
+
+    webviewView.onDidDispose(() => {
+      bridge.dispose();
+      this.ready = false;
+    }, this.context.subscriptions);
+
     void setWebviewContent(
-      webviewView.webview,
+      this.webview,
       this.context.extensionUri,
       'inspector',
     );
   }
 
   postMessage(message: unknown): void {
-    void this.webview?.postMessage(message);
+    if (!this.webview || !this.ready) {
+      this.pending.push(message);
+      return;
+    }
+    void this.webview.postMessage(message);
   }
 }
 
@@ -45,17 +75,19 @@ export function activate(context: vscode.ExtensionContext): void {
     traceFlags: new TraceFlagService(),
   };
 
-  const inspector = new TraceForgeInspectorProvider(context);
+  const inspector = new TraceForgeInspectorProvider(context, services);
   let transactionPanel: vscode.WebviewPanel | undefined;
+  let transactionReady = false;
+  let pendingLog: { org: string; logId: string } | undefined;
 
   const openTransaction = (org: string, logId: string): vscode.WebviewPanel => {
     if (transactionPanel) {
       transactionPanel.reveal(vscode.ViewColumn.One);
-      void transactionPanel.webview.postMessage({
-        type: 'open-log',
-        org,
-        logId,
-      });
+      if (transactionReady) {
+        void transactionPanel.webview.postMessage({ type: 'open-log', org, logId });
+      } else {
+        pendingLog = { org, logId };
+      }
       return transactionPanel;
     }
 
@@ -72,17 +104,25 @@ export function activate(context: vscode.ExtensionContext): void {
       },
     );
 
-    void setWebviewContent(
-      transactionPanel.webview,
-      context.extensionUri,
-      'transaction',
-    );
+    transactionReady = false;
+    pendingLog = { org, logId };
 
     const bridge = createWebviewHandler(
       transactionPanel.webview,
       services,
       context,
       {
+        onReady: () => {
+          transactionReady = true;
+          if (pendingLog) {
+            const message = pendingLog;
+            pendingLog = undefined;
+            void transactionPanel?.webview.postMessage({
+              type: 'open-log',
+              ...message,
+            });
+          }
+        },
         onNodeSelected: (payload) => {
           inspector.postMessage({ type: 'node-selected', ...payload });
           void vscode.commands.executeCommand('workbench.action.focusPanel');
@@ -90,15 +130,17 @@ export function activate(context: vscode.ExtensionContext): void {
       },
     );
 
+    void setWebviewContent(
+      transactionPanel.webview,
+      context.extensionUri,
+      'transaction',
+    );
+
     transactionPanel.onDidDispose(() => {
       bridge.dispose();
       transactionPanel = undefined;
-    });
-
-    void transactionPanel.webview.postMessage({
-      type: 'open-log',
-      org,
-      logId,
+      transactionReady = false;
+      pendingLog = undefined;
     });
 
     return transactionPanel;
@@ -112,10 +154,6 @@ export function activate(context: vscode.ExtensionContext): void {
 
   context.subscriptions.push(
     vscode.commands.registerCommand('traceforge.open', () => {
-      if (transactionPanel) {
-        transactionPanel.reveal(vscode.ViewColumn.One);
-        return;
-      }
       void vscode.commands.executeCommand('workbench.view.extension.traceforge');
     }),
     vscode.commands.registerCommand(
@@ -124,7 +162,6 @@ export function activate(context: vscode.ExtensionContext): void {
         try {
           const orgs = await services.debugLogs.listOrgs();
           const org = orgs.find((item) => item.isDefaultUsername) ?? orgs[0];
-
           if (!org) {
             await vscode.window.showWarningMessage(
               'TraceForge could not find an authenticated Salesforce org.',
@@ -139,7 +176,6 @@ export function activate(context: vscode.ExtensionContext): void {
             );
             return;
           }
-
           openTransaction(org.alias, logs[0].id);
         } catch (error) {
           await vscode.window.showErrorMessage(errorMessage(error));
@@ -166,10 +202,7 @@ async function setWebviewContent(
   const nonce = createNonce();
 
   const html = source
-    .replace(
-      /<body>/,
-      `<body data-traceforge-surface="${surface}">`,
-    )
+    .replace(/<body>/, `<body data-traceforge-surface="${surface}">`)
     .replace(
       /(src|href)="(\.\/|\/)?([^"]+)"/g,
       (match, attribute: string, _prefix: string, asset: string) => {
