@@ -7,6 +7,12 @@
   },
   "references": [
     {
+      "path": "../../packages/shared"
+    },
+    {
+      "path": "../../packages/log-scanner"
+    },
+    {
       "path": "../../packages/parser-adapter"
     },
     {

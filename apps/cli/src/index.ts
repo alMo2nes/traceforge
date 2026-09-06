@@ -1,6 +1,13 @@
 import { readFile } from 'node:fs/promises';
 
 import { LogAnalyzer, type ExecutionTreeNode } from '@traceforge/analyzer';
+import {
+  SalesforceLogScanner,
+  decodeSemanticEvents,
+  type RawLogEvent,
+  type SemanticEvent
+} from '@traceforge/log-scanner';
+import type { LogEvent } from '@traceforge/shared';
 import { SalesforceLogParser } from '@traceforge/parser-adapter';
 import { DebugLogService } from '@traceforge/salesforce';
 import { runLogsCommand } from './logDiscovery.js';
@@ -27,12 +34,15 @@ async function main(): Promise<void> {
       await analyzeOrgLog(args[0], args[1]);
       return;
 
+    case 'inspect-log':
+      await inspectOrgLog(args[0], args[1]);
+      return;
+
     case 'analyze':
       await analyzeFile(args[0]);
       return;
 
     default:
-      // Preserve the original `pnpm cli <path>` command for local analysis.
       await analyzeFile(command);
   }
 }
@@ -62,6 +72,16 @@ async function analyzeOrgLog(targetOrg: string | undefined, logId: string | unde
   console.log(`Fetching Salesforce log ${logId} from ${targetOrg}...`);
   const content = await new DebugLogService().fetchLog(targetOrg, logId);
   analyze(content, `${targetOrg}:${logId}`);
+}
+
+async function inspectOrgLog(targetOrg: string | undefined, logId: string | undefined): Promise<void> {
+  if (!targetOrg || !logId) {
+    throw new Error('Usage: pnpm cli inspect-log <org-alias-or-username> <log-id>');
+  }
+
+  console.log(`Fetching Salesforce log ${logId} from ${targetOrg}...`);
+  const content = await new DebugLogService().fetchLog(targetOrg, logId);
+  inspect(content, `${targetOrg}:${logId}`);
 }
 
 async function analyzeFile(file: string | undefined): Promise<void> {
@@ -95,6 +115,129 @@ function analyze(content: string, source: string): void {
   }
 
   printPerformanceAnalysis(analyzer);
+}
+
+function inspect(content: string, source: string): void {
+  const raw = new SalesforceLogScanner().scan(content);
+  const semantic = decodeSemanticEvents(raw.events);
+  const parsed = new SalesforceLogParser().parse(content, source);
+  const counts = new Map<string, number>();
+
+  for (const event of parsed.events) {
+    const key = event.rawType ?? event.type;
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+
+  const structuredTypes = new Set(parsed.events.map((event) => event.rawType ?? event.type));
+  const rawOnlyTypes = Object.entries(raw.eventTypeCounts)
+    .filter(([type]) => !structuredTypes.has(type))
+    .sort(([a], [b]) => a.localeCompare(b));
+
+  console.log('\n=== RAW LOG SCAN ===\n');
+  console.log(`Raw parsed lines: ${raw.events.length}`);
+  console.log(`Ignored non-event lines: ${raw.ignoredLineCount}`);
+  console.log(`Structured parser events: ${parsed.events.length}`);
+  console.log(`Semantic investigation events: ${semantic.length}`);
+  console.log(`Raw / structured event ratio: ${parsed.events.length === 0 ? 'n/a' : `${(raw.events.length / parsed.events.length).toFixed(1)}x`}`);
+
+  console.log('\n=== RAW EVENT TYPE INVENTORY ===\n');
+  for (const [type, count] of Object.entries(raw.eventTypeCounts).sort(([a], [b]) => a.localeCompare(b))) {
+    console.log(`${String(count).padStart(6)}  ${type}`);
+  }
+
+  console.log('\n=== RAW EVENT TYPES NOT REPRESENTED BY STRUCTURED PARSER ===\n');
+  if (rawOnlyTypes.length === 0) {
+    console.log('None');
+  } else {
+    for (const [type, count] of rawOnlyTypes) {
+      console.log(`${String(count).padStart(6)}  ${type}`);
+    }
+  }
+
+  console.log('\n=== SEMANTIC EVENT INVENTORY ===\n');
+  const semanticCounts = new Map<string, number>();
+  for (const event of semantic) {
+    semanticCounts.set(event.type, (semanticCounts.get(event.type) ?? 0) + 1);
+  }
+  for (const [type, count] of [...semanticCounts.entries()].sort(([a], [b]) => a.localeCompare(b))) {
+    console.log(`${String(count).padStart(6)}  ${type}`);
+  }
+
+  console.log('\n=== KEY SEMANTIC EVENTS ===\n');
+  for (const event of semantic) {
+    if (isKeySemanticEvent(event)) {
+      printSemanticEvent(event);
+    }
+  }
+
+  console.log('\n=== STRUCTURED PARSER EVENT INVENTORY ===\n');
+  for (const [type, count] of [...counts.entries()].sort(([a], [b]) => a.localeCompare(b))) {
+    console.log(`${String(count).padStart(6)}  ${type}`);
+  }
+
+  console.log('\n=== STRUCTURED EVENTS ===\n');
+  parsed.events.forEach((event, index) => printEvent(event, index + 1));
+
+  console.log('\n=== STRUCTURED EVENT HIERARCHY ===\n');
+  const analyzer = new LogAnalyzer(parsed.events);
+  printInvestigationTree(analyzer.getExecutionTree());
+}
+
+function isKeySemanticEvent(event: SemanticEvent): boolean {
+  return event.type === 'code-unit-start'
+    || event.type === 'code-unit-finish'
+    || event.type === 'method-entry'
+    || event.type === 'method-exit'
+    || event.type === 'variable-scope'
+    || event.type === 'variable-assignment'
+    || event.type === 'user-debug'
+    || event.type === 'soql-begin'
+    || event.type === 'soql-end'
+    || event.type === 'soql-explain'
+    || event.type === 'dml-begin'
+    || event.type === 'dml-end'
+    || event.type === 'exception'
+    || event.type === 'savepoint-set'
+    || event.type === 'savepoint-rollback';
+}
+
+function printSemanticEvent(event: SemanticEvent): void {
+  const line = event.line === undefined ? '-' : String(event.line);
+  const primary = event.name ?? event.value ?? '';
+  console.log(`# ${event.lineNumber}  ${event.type.padEnd(24)} line=${line} ${primary}`);
+  if (event.details && Object.keys(event.details).length > 0) {
+    console.log(`  ${JSON.stringify(event.details)}`);
+  }
+}
+
+function printRawEvent(event: RawLogEvent, index: number): void {
+  console.log(`#${String(index).padStart(5)} line=${event.lineNumber} timestamp=${event.timestamp} type=${event.eventType}`);
+  console.log(`  details: ${event.details ?? '-'}`);
+  console.log(`  raw:     ${event.rawLine}`);
+}
+
+function printEvent(event: LogEvent, index: number): void {
+  console.log(`#${String(index).padStart(3)} ${event.id}`);
+  console.log(`  type:     ${event.type}`);
+  console.log(`  rawType:  ${event.rawType ?? '-'}`);
+  console.log(`  name:     ${event.name ?? '-'}`);
+  console.log(`  parentId: ${event.parentId ?? '-'}`);
+  console.log(`  line:     ${event.lineNumber ?? '-'}`);
+  console.log(`  start:    ${event.timeStart ?? '-'}`);
+  console.log(`  end:      ${event.timeEnd ?? '-'}`);
+  console.log(`  duration: ${formatDuration(event.durationMs)}`);
+  console.log(`  source:   ${event.source ?? '-'}`);
+  console.log('');
+}
+
+function printInvestigationTree(nodes: ExecutionTreeNode[], prefix = ''): void {
+  nodes.forEach((node, index) => {
+    const isLast = index === nodes.length - 1;
+    const event = node.event;
+    const label = `${event.name ?? event.type} [${event.type}/${event.rawType ?? event.type}]`;
+    console.log(`${prefix}${isLast ? '└── ' : '├── '}${label}`);
+    printInvestigationTree(node.children, `${prefix}${isLast ? '    ' : '│   '}`);
+  });
 }
 
 function printPerformanceAnalysis(analyzer: LogAnalyzer): void {
@@ -198,6 +341,7 @@ function printUsage(): void {
   console.log('  pnpm cli orgs');
   console.log('  pnpm cli logs [--org <org-alias-or-username>] [--latest | --id <log-id>] [--user <user>] [--limit <number>]');
   console.log('  pnpm cli analyze-log <org-alias-or-username> <log-id>');
+  console.log('  pnpm cli inspect-log <org-alias-or-username> <log-id>');
   console.log('  pnpm cli analyze <path-to-salesforce-log>');
   console.log('  pnpm cli <path-to-salesforce-log>');
 }

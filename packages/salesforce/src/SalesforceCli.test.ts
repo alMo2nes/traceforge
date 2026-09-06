@@ -12,9 +12,7 @@ vi.mock('node:child_process', () => ({
 const mockedExecFile = vi.mocked(execFile);
 
 describe('SalesforceCli', () => {
-  beforeEach(() => {
-    mockedExecFile.mockReset();
-  });
+  beforeEach(() => mockedExecFile.mockReset());
 
   it('runs sf with the supplied arguments', async () => {
     mockedExecFile.mockImplementation((_file, _args, _options, callback) => {
@@ -58,60 +56,85 @@ describe('SalesforceCli', () => {
   });
 });
 
+type MockConnectionService = {
+  connect: ReturnType<typeof vi.fn>;
+};
+
+function createConnectionService(): MockConnectionService & { connection: any } {
+  const connection = {
+    tooling: {
+      query: vi.fn(),
+      sobject: vi.fn()
+    },
+    query: vi.fn(),
+    version: '67.0',
+    request: vi.fn()
+  };
+  return { connection, connect: vi.fn().mockResolvedValue(connection) };
+}
+
 describe('DebugLogService', () => {
-  it('maps and sorts JSON debug log records', async () => {
+  it('discovers the default username and sorts it first', async () => {
     const cli: SalesforceCliRunner = {
       run: vi.fn().mockResolvedValue(JSON.stringify({
         status: 0,
-        result: [
-          { Id: '07Lolder', StartTime: '2026-01-01T00:00:00.000+0000', Operation: 'EXECUTION' },
-          {
-            Id: '07Lnewer',
-            StartTime: '2026-01-02T00:00:00.000+0000',
-            DurationMilliseconds: 25,
-            LogLength: 42,
-            LogUserId: '005user',
-            LogUser: { Name: 'user@example.com' }
-          }
-        ]
+        result: {
+          other: [
+            { alias: 'other-org', username: 'other@example.com', isDefaultUsername: false },
+            { alias: 'default-org', username: 'default@example.com', isDefaultUsername: true }
+          ]
+        }
       }))
     };
 
-    const logs = await new DebugLogService(cli).listLogs('dev-org');
+    const orgs = await new DebugLogService(cli).listOrgs();
 
-    expect(logs.map((log) => log.id)).toEqual(['07Lnewer', '07Lolder']);
-    expect(logs[0]).toMatchObject({
-      userId: '005user', userName: 'user@example.com', durationMs: 25, logLength: 42
+    expect(orgs[0]).toMatchObject({ alias: 'default-org', username: 'default@example.com', isDefaultUsername: true });
+    expect(orgs[1]).toMatchObject({ alias: 'other-org', username: 'other@example.com', isDefaultUsername: false });
+  });
+
+  it('lists Apex logs through JSforce Tooling API', async () => {
+    const service = createConnectionService();
+    service.connection.tooling.query.mockResolvedValue({
+      records: [
+        {
+          Id: '07Lnewer',
+          StartTime: '2026-01-02T00:00:00.000+0000',
+          DurationMilliseconds: 25,
+          LogLength: 42,
+          LogUserId: '005user',
+          LogUser: { Name: 'user@example.com' }
+        }
+      ]
     });
-    expect(cli.run).toHaveBeenCalledWith([
-      'apex', 'list', 'log', '--target-org', 'dev-org', '--json'
-    ]);
+
+    const logs = await new DebugLogService({} as SalesforceCliRunner, service as any).listLogs('dev-org');
+
+    expect(logs).toEqual([{ 
+      id: '07Lnewer', userId: '005user', userName: 'user@example.com',
+      operation: undefined, status: undefined, startTime: '2026-01-02T00:00:00.000+0000',
+      durationMs: 25, logLength: 42
+    }]);
+    expect(service.connect).toHaveBeenCalledWith('dev-org');
+    expect(service.connection.tooling.query).toHaveBeenCalledWith(expect.stringContaining('FROM ApexLog'));
   });
 
-  it('extracts a log from the Salesforce CLI JSON response', async () => {
-    const cli: SalesforceCliRunner = {
-      run: vi.fn().mockResolvedValue(JSON.stringify({ status: 0, result: '42.0|EXECUTION_STARTED' }))
-    };
+  it('fetches the raw ApexLog body through JSforce', async () => {
+    const service = createConnectionService();
+    service.connection.request.mockResolvedValue('42.0|EXECUTION_STARTED');
 
-    await expect(new DebugLogService(cli).fetchLog('dev-org', '07Llog'))
+    await expect(new DebugLogService({} as SalesforceCliRunner, service as any).fetchLog('dev-org', '07Llog'))
       .resolves.toBe('42.0|EXECUTION_STARTED');
+
+    expect(service.connection.request).toHaveBeenCalledWith(
+      '/services/data/v67.0/tooling/sobjects/ApexLog/07Llog/Body',
+      { responseType: 'text' }
+    );
   });
 
-  it('extracts the log array returned by sf apex get log', async () => {
-    const cli: SalesforceCliRunner = {
-      run: vi.fn().mockResolvedValue(JSON.stringify({
-        status: 0, result: [{ log: '42.0|EXECUTION_STARTED' }]
-      }))
-    };
-
-    await expect(new DebugLogService(cli).fetchLog('dev-org', '07Llog'))
-      .resolves.toBe('42.0|EXECUTION_STARTED');
-  });
-
-  it('rejects malformed list responses', async () => {
+  it('rejects malformed org list responses', async () => {
     const cli: SalesforceCliRunner = { run: vi.fn().mockResolvedValue('{"status":0,"result":{}}') };
 
-    await expect(new DebugLogService(cli).listLogs('dev-org'))
-      .rejects.toBeInstanceOf(SalesforceCliError);
+    await expect(new DebugLogService(cli).listOrgs()).rejects.toBeInstanceOf(SalesforceCliError);
   });
 });
