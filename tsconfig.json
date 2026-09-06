@@ -1,0 +1,13 @@
+{
+  "files": [],
+  "references": [
+    { "path": "./packages/shared" },
+    { "path": "./packages/log-scanner" },
+    { "path": "./packages/parser-adapter" },
+    { "path": "./packages/analyzer" },
+    { "path": "./packages/salesforce" },
+    { "path": "./packages/investigation" },
+    { "path": "./apps/cli" },
+    { "path": "./apps/vscode" }
+  ]
+}
