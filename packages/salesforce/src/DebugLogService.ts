@@ -43,7 +43,7 @@ export class DebugLogService {
   /** Connected-org discovery still comes from the local sf auth store. */
   async listOrgs(): Promise<SalesforceOrg[]> {
     const response = this.parseCliJson(await this.cli.run(['org', 'list', '--json']), 'list authenticated orgs');
-    if (!this.isObject(response.result)) {
+    if (!this.isObject(response.result) || Object.keys(response.result).length === 0) {
       throw new SalesforceCliError('Salesforce CLI returned an invalid org list.');
     }
 

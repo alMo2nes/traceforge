@@ -32,7 +32,7 @@ export class SalesforceCli implements SalesforceCliRunner {
           if (stderr?.trim()) console.warn(`[SF CLI stderr] ${this.redact(stderr.trim())}`);
           if (error) {
             const wrapped = new Error(stderr?.trim() ? `${error.message}\n${this.redact(stderr.trim())}` : error.message);
-            Object.assign(wrapped, { stderr });
+            Object.assign(wrapped, { stderr, code: (error as { code?: string })?.code });
             reject(wrapped);
             return;
           }

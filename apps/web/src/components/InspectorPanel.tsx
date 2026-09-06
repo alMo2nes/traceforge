@@ -1,5 +1,6 @@
 import type { PointerEvent as ReactPointerEvent } from 'react';
 import type { InvestigationNode, LogRecord, VariableValue } from '../data';
+import type { GovernorLimitUsageDto } from '../api';
 import { LoadingSpinner } from './LoadingSpinner';
 
 const nodeIcon: Record<InvestigationNode['kind'], string> = {
@@ -16,6 +17,7 @@ interface InspectorPanelProps {
   selectedNode?: InvestigationNode & { logOutput?: string };
   activeLog?: LogRecord;
   variables: VariableValue[];
+  governorLimits?: GovernorLimitUsageDto[];
   loading: boolean;
   detail: string;
   onResizeStart: (event: ReactPointerEvent<HTMLDivElement>) => void;
@@ -34,6 +36,7 @@ export function InspectorPanel({
   selectedNode,
   activeLog,
   variables,
+  governorLimits,
   loading,
   detail,
   onResizeStart,
@@ -126,6 +129,42 @@ export function InspectorPanel({
                 {detail || 'No raw log output captured for this node.'}
               </pre>
             </div>
+
+            {governorLimits && governorLimits.length > 0 && (
+              <div className="inspector-section limits-section">
+                <div className="section-heading">
+                  Governor limits
+                  <span className="section-count">{governorLimits[0]?.namespace}</span>
+                </div>
+                <div className="limits-grid">
+                  {governorLimits.flatMap((ns: GovernorLimitUsageDto) =>
+                    Object.entries(ns.metrics).map(([name, val]: [string, { used: number; limit: number }]) => {
+                      const pct = Math.min(100, Math.round((val.used / (val.limit || 1)) * 100));
+                      const isHigh = pct >= 80;
+                      return (
+                        <div
+                          className={`limit-item ${isHigh ? 'limit-warning' : ''}`}
+                          key={`${ns.namespace}-${name}`}
+                        >
+                          <div className="limit-header-row">
+                            <span className="limit-name">{name}</span>
+                            <span className="limit-numbers">
+                              {val.used} / {val.limit} ({pct}%)
+                            </span>
+                          </div>
+                          <div className="limit-track">
+                            <div
+                              className={`limit-fill ${isHigh ? 'high' : ''}`}
+                              style={{ width: `${pct}%` }}
+                            />
+                          </div>
+                        </div>
+                      );
+                    }),
+                  )}
+                </div>
+              </div>
+            )}
           </div>
         )}
 

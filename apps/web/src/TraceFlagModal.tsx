@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { traceforgeApi, type DebugLevelInfo, type SalesforceUserInfo, type TraceFlagResult } from './api';
 
 interface TraceFlagModalProps {
@@ -9,6 +9,7 @@ interface TraceFlagModalProps {
 }
 
 export function TraceFlagModal({ org, open, onClose, onCreated }: TraceFlagModalProps) {
+  const dialogRef = useRef<HTMLDialogElement>(null);
   const [users, setUsers] = useState<SalesforceUserInfo[]>([]);
   const [levels, setLevels] = useState<DebugLevelInfo[]>([]);
   const [selectedUser, setSelectedUser] = useState('');
@@ -19,6 +20,26 @@ export function TraceFlagModal({ org, open, onClose, onCreated }: TraceFlagModal
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+
+  useEffect(() => {
+    const dialog = dialogRef.current;
+    if (!dialog) return;
+
+    if (open && !dialog.open) {
+      dialog.showModal();
+    } else if (!open && dialog.open) {
+      dialog.close();
+    }
+
+    const handleClose = () => {
+      onClose();
+    };
+
+    dialog.addEventListener('close', handleClose);
+    return () => {
+      dialog.removeEventListener('close', handleClose);
+    };
+  }, [open, onClose]);
 
   useEffect(() => {
     if (!open || !org) return;
@@ -69,15 +90,25 @@ export function TraceFlagModal({ org, open, onClose, onCreated }: TraceFlagModal
   };
 
   return (
-    <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
-      <section className="trace-modal" role="dialog" aria-modal="true" aria-labelledby="trace-modal-title">
+    <dialog
+      ref={dialogRef}
+      className="native-modal"
+      aria-labelledby="trace-modal-title"
+      closedby="any"
+      onClick={(event) => {
+        if (event.target === dialogRef.current) {
+          dialogRef.current?.close();
+        }
+      }}
+    >
+      <section className="trace-modal">
         <div className="modal-header">
           <div>
             <div className="modal-kicker">{org}</div>
             <h2 id="trace-modal-title">Create trace flag</h2>
             <p>Capture a new transaction for a Salesforce user.</p>
           </div>
-          <button className="icon-btn" type="button" onClick={onClose} aria-label="Close">×</button>
+          <button className="icon-btn" type="button" onClick={() => dialogRef.current?.close()} aria-label="Close">×</button>
         </div>
 
         {loading ? <div className="modal-loading">Loading users and debug levels…</div> : <div className="modal-body">
@@ -116,12 +147,12 @@ export function TraceFlagModal({ org, open, onClose, onCreated }: TraceFlagModal
         {error && <div className="modal-error">{error}</div>}
 
         <div className="modal-footer">
-          <button className="ghost-btn" type="button" onClick={onClose}>Cancel</button>
+          <button className="ghost-btn" type="button" onClick={() => dialogRef.current?.close()}>Cancel</button>
           <button className="primary-btn" type="button" disabled={loading || saving || !selectedUser} onClick={() => void save()}>
             {saving ? 'Saving…' : 'Start tracing'}
           </button>
         </div>
       </section>
-    </div>
+    </dialog>
   );
 }

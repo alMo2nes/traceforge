@@ -14,6 +14,7 @@ import {
 import {
   traceforgeApi,
   type DebugLogInfo,
+  type GovernorLimitUsageDto,
   type InvestigationNodeDto,
   type OrgInfo,
   type TraceFlagResult,
@@ -121,7 +122,7 @@ function containsQuery(log: LogRecord, query: string): InvestigationNode[] {
     log.summary,
   ].some((value) => value?.toLowerCase().includes(needle));
 
-  return metadataMatches && log.nodes.length ? [log.nodes[0]] : [];
+  return metadataMatches && log.nodes[0] ? [log.nodes[0]] : [];
 }
 
 /**
@@ -190,6 +191,8 @@ function App() {
   const [rawLog, setRawLog] = useState('');
   const [rawLoading, setRawLoading] = useState(false);
   const [analysisLoading, setAnalysisLoading] = useState(false);
+  const [logTruncated, setLogTruncated] = useState<Record<string, boolean>>({});
+  const [logSummaries, setLogSummaries] = useState<Record<string, GovernorLimitUsageDto[]>>({});
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -330,6 +333,13 @@ function App() {
 
     try {
       const result = await traceforgeApi.investigateLog(selectedOrg, logId);
+
+      if (result.isTruncated !== undefined) {
+        setLogTruncated((prev) => ({ ...prev, [logId]: result.isTruncated ?? false }));
+      }
+      if (result.summaries?.governorLimits) {
+        setLogSummaries((prev) => ({ ...prev, [logId]: result.summaries!.governorLimits }));
+      }
 
       setLiveLogs((current) =>
         current?.map((log) =>
@@ -495,11 +505,15 @@ function App() {
             />
 
             {traceMessage && (
-              <div className="trace-toast">{traceMessage}</div>
+              <div className="trace-toast" role="status" aria-live="polite">
+                {traceMessage}
+              </div>
             )}
 
             {connectionError && (
-              <div className="connection-banner">{connectionError}</div>
+              <div className="connection-banner" role="alert" aria-live="assertive">
+                {connectionError}
+              </div>
             )}
 
             <div
@@ -535,6 +549,7 @@ function App() {
                 collapsed={collapsed}
                 showSystem={showSystem}
                 loading={dataLoading || analysisLoading}
+                isTruncated={activeLog ? logTruncated[activeLog.id] : false}
                 onSelectNode={setSelectedNodeId}
                 onToggleNode={toggleNode}
                 onCollapseAll={collapseAll}
@@ -546,6 +561,7 @@ function App() {
                 selectedNode={selectedNode}
                 activeLog={activeLog}
                 variables={inspectorVariables}
+                governorLimits={activeLog ? logSummaries[activeLog.id] : undefined}
                 loading={analysisLoading}
                 detail={detail}
                 onResizeStart={resizeInspector}

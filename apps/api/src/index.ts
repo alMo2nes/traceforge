@@ -11,8 +11,33 @@ const port = Number(process.env.TRACEFORGE_API_PORT ?? 3001);
 const debugLogs = new DebugLogService();
 const traceFlags = new TraceFlagService();
 
-/** Write a JSON response with the CORS headers required by the local web app. */
+function corsOrigin(req: IncomingMessage): string {
+  const configured = process.env.TRACEFORGE_WEB_URL;
+  if (configured) return configured;
+  const origin = req.headers.origin;
+  if (origin && /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)) {
+    return origin;
+  }
+  return 'http://localhost:5173';
+}
+
+const logCache = new Map<string, { content: string; timestamp: number }>();
+const CACHE_TTL_MS = 10 * 60 * 1000;
+
+async function getCachedLog(org: string, logId: string): Promise<string> {
+  const key = `${org}:${logId}`;
+  const hit = logCache.get(key);
+  if (hit && Date.now() - hit.timestamp < CACHE_TTL_MS) {
+    return hit.content;
+  }
+  const content = await debugLogs.fetchLog(org, logId);
+  logCache.set(key, { content, timestamp: Date.now() });
+  return content;
+}
+
+/** Write a JSON response with dynamic CORS headers. */
 function json(
+  req: IncomingMessage,
   res: ServerResponse,
   status: number,
   value: unknown,
@@ -21,7 +46,7 @@ function json(
 
   res.writeHead(status, {
     'Content-Type': 'application/json; charset=utf-8',
-    'Access-Control-Allow-Origin': 'http://localhost:5173',
+    'Access-Control-Allow-Origin': corsOrigin(req),
     'Access-Control-Allow-Methods': 'GET,POST,OPTIONS',
     'Access-Control-Allow-Headers': 'Content-Type',
   });
@@ -62,9 +87,12 @@ async function handle(
   req: IncomingMessage,
   res: ServerResponse,
 ): Promise<void> {
+  const sendJson = (status: number, value: unknown) =>
+    json(req, res, status, value);
+
   if (req.method === 'OPTIONS') {
     res.writeHead(204, {
-      'Access-Control-Allow-Origin': 'http://localhost:5173',
+      'Access-Control-Allow-Origin': corsOrigin(req),
       'Access-Control-Allow-Methods': 'GET,POST,OPTIONS',
       'Access-Control-Allow-Headers': 'Content-Type',
     });
@@ -77,7 +105,7 @@ async function handle(
 
     // Discover authenticated Salesforce orgs.
     if (req.method === 'GET' && parts.join('/') === 'api/orgs') {
-      return json(res, 200, await debugLogs.listOrgs());
+      return sendJson(200, await debugLogs.listOrgs());
     }
 
     // Trace-flag management requires the users available in the selected org.
@@ -87,8 +115,7 @@ async function handle(
       parts[1] === 'orgs' &&
       parts[3] === 'users'
     ) {
-      return json(
-        res,
+      return sendJson(
         200,
         await traceFlags.listUsers(decodeURIComponent(parts[2])),
       );
@@ -109,7 +136,7 @@ async function handle(
           level.masterLabel.toUpperCase() === 'FINEST',
       );
 
-      return json(res, 200, {
+      return sendJson(200, {
         levels,
         finestAvailable: finest,
         finestAutoCreate: !finest,
@@ -130,8 +157,8 @@ async function handle(
 
       console.info(`[API] analyze log org=${org} logId=${logId}`);
 
-      const content = await debugLogs.fetchLog(org, logId);
-      return json(res, 200, { nodes: analyzeLog(content) });
+      const content = await getCachedLog(org, logId);
+      return sendJson(200, analyzeLog(content));
     }
 
     // Return a complete raw transaction log for the Raw Log modal.
@@ -147,8 +174,8 @@ async function handle(
 
       console.info(`[API] fetch raw log org=${org} logId=${logId}`);
 
-      return json(res, 200, {
-        content: await debugLogs.fetchLog(org, logId),
+      return sendJson(200, {
+        content: await getCachedLog(org, logId),
       });
     }
 
@@ -160,8 +187,7 @@ async function handle(
       parts[3] === 'logs' &&
       parts.length === 4
     ) {
-      return json(
-        res,
+      return sendJson(
         200,
         await debugLogs.listLogs(decodeURIComponent(parts[2])),
       );
@@ -193,7 +219,7 @@ async function handle(
       );
 
       if (!userId) {
-        return json(res, 400, { error: 'userId is required' });
+        return sendJson(400, { error: 'userId is required' });
       }
 
       const result = await traceFlags.createOrUpdateUserTraceFlag(org, {
@@ -206,13 +232,13 @@ async function handle(
         `[API] trace flag success id=${result.id} user=${result.tracedEntityId}`,
       );
 
-      return json(res, 200, result);
+      return sendJson(200, result);
     }
 
-    return json(res, 404, { error: 'Not found' });
+    return sendJson(404, { error: 'Not found' });
   } catch (error) {
     console.error('[API] request failed', error);
-    return json(res, 500, {
+    return sendJson(500, {
       error: error instanceof Error ? error.message : String(error),
     });
   }

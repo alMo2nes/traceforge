@@ -127,7 +127,8 @@ describe('DebugLogService', () => {
       .resolves.toBe('42.0|EXECUTION_STARTED');
 
     expect(service.connection.request).toHaveBeenCalledWith(
-      '/services/data/67.0/tooling/sobjects/ApexLog/07Llog/Body'
+      '/services/data/v67.0/tooling/sobjects/ApexLog/07Llog/Body',
+      { responseType: 'text' }
     );
   });
 

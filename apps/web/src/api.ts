@@ -62,6 +62,20 @@ export interface InvestigationNodeDto {
   children: InvestigationNodeDto[];
 }
 
+export interface GovernorLimitUsageDto {
+  namespace: string;
+  metrics: Record<string, { used: number; limit: number }>;
+}
+
+export interface InvestigationResponseDto {
+  nodes: InvestigationNodeDto[];
+  summaries?: {
+    governorLimits: GovernorLimitUsageDto[];
+    emailsQueued?: number;
+  };
+  isTruncated?: boolean;
+}
+
 export interface TraceFlagResult {
   id: string;
   tracedEntityId: string;
@@ -122,7 +136,7 @@ export const traceforgeApi = {
       `/api/orgs/${encodeURIComponent(org)}/logs/${encodeURIComponent(logId)}`,
     ),
   investigateLog: (org: string, logId: string) =>
-    request<{ nodes: InvestigationNodeDto[] }>(
+    request<InvestigationResponseDto>(
       `/api/orgs/${encodeURIComponent(org)}/logs/${encodeURIComponent(logId)}/investigation`,
     ),
 

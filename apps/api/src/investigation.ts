@@ -3,6 +3,7 @@ import {
   decodeSemanticEvents,
   SalesforceLogScanner,
   type InvestigationNode as ScannerNode,
+  type SalesforceLogSummaries,
   type SemanticEvent,
 } from '../../../packages/log-scanner/src/index.js';
 
@@ -210,13 +211,19 @@ function uiNode(
   };
 }
 
+export interface InvestigationResult {
+  nodes: UiInvestigationNode[];
+  summaries?: SalesforceLogSummaries;
+  isTruncated: boolean;
+}
+
 /** Run the complete scan → semantic decode → correlation → UI mapping pipeline. */
-export function analyzeLog(content: string): UiInvestigationNode[] {
+export function analyzeLog(content: string): InvestigationResult {
   const scanner = new SalesforceLogScanner();
   const raw = scanner.scan(content);
   const semantic = decodeSemanticEvents(raw.events);
 
-  return correlateInvestigationEvents(semantic)
+  const nodes = correlateInvestigationEvents(semantic)
     .map((root) =>
       root.startTimestamp === undefined
         ? undefined
@@ -225,4 +232,14 @@ export function analyzeLog(content: string): UiInvestigationNode[] {
     .filter(
       (node): node is UiInvestigationNode => node !== undefined,
     );
+
+  const isTruncated =
+    content.includes('MAXIMUM DEBUG LOG SIZE REACHED') ||
+    content.includes('*** MAXIMUM DEBUG LOG SIZE REACHED ***');
+
+  return {
+    nodes,
+    summaries: raw.summaries,
+    isTruncated,
+  };
 }

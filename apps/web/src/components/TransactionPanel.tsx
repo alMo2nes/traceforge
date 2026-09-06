@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import type { InvestigationNode, LogRecord } from '../data';
 import { LoadingSpinner } from './LoadingSpinner';
 
@@ -11,12 +12,15 @@ const nodeIcon: Record<InvestigationNode['kind'], string> = {
   exception: '!',
 };
 
+export type NodeKindFilter = 'all' | 'soql' | 'dml' | 'exception';
+
 interface TransactionPanelProps {
   activeLog?: LogRecord;
   selectedNodeId: string;
   collapsed: Record<string, boolean>;
   showSystem: boolean;
   loading: boolean;
+  isTruncated?: boolean;
   onSelectNode: (id: string) => void;
   onToggleNode: (id: string) => void;
   onCollapseAll: () => void;
@@ -26,6 +30,17 @@ interface TransactionPanelProps {
 
 function formatDuration(value?: number): string {
   return value === undefined ? '—' : `${value.toFixed(2)} ms`;
+}
+
+function matchesFilter(node: InvestigationNode, filter: NodeKindFilter): boolean {
+  if (filter === 'all') return true;
+  if (filter === 'exception') return node.kind === 'exception' || node.status === 'error';
+  return node.kind === filter;
+}
+
+function hasMatchingDescendant(node: InvestigationNode, filter: NodeKindFilter): boolean {
+  if (matchesFilter(node, filter)) return true;
+  return node.children.some((child) => hasMatchingDescendant(child, filter));
 }
 
 /**
@@ -38,12 +53,15 @@ export function TransactionPanel({
   collapsed,
   showSystem,
   loading,
+  isTruncated,
   onSelectNode,
   onToggleNode,
   onCollapseAll,
   onExpandAll,
   onRawLog,
 }: TransactionPanelProps) {
+  const [filterKind, setFilterKind] = useState<NodeKindFilter>('all');
+
   return (
     <section className="tree-panel panel">
       <div className="panel-header tree-header">
@@ -84,6 +102,44 @@ export function TransactionPanel({
         </div>
       </div>
 
+      {isTruncated && (
+        <div className="truncation-banner" role="alert">
+          ⚠️ <strong>Salesforce debug log truncated</strong> — Maximum debug log size reached.
+        </div>
+      )}
+
+      <div className="tree-filter-bar">
+        <span className="filter-label">Filter:</span>
+        <button
+          className={`filter-chip ${filterKind === 'all' ? 'active' : ''}`}
+          type="button"
+          onClick={() => setFilterKind('all')}
+        >
+          All
+        </button>
+        <button
+          className={`filter-chip soql ${filterKind === 'soql' ? 'active' : ''}`}
+          type="button"
+          onClick={() => setFilterKind('soql')}
+        >
+          SOQL
+        </button>
+        <button
+          className={`filter-chip dml ${filterKind === 'dml' ? 'active' : ''}`}
+          type="button"
+          onClick={() => setFilterKind('dml')}
+        >
+          DML
+        </button>
+        <button
+          className={`filter-chip exception ${filterKind === 'exception' ? 'active' : ''}`}
+          type="button"
+          onClick={() => setFilterKind('exception')}
+        >
+          Errors
+        </button>
+      </div>
+
       <div className="tree-scroll">
         {activeLog?.nodes.map((node) => (
           <TreeNode
@@ -95,6 +151,7 @@ export function TransactionPanel({
             collapsed={collapsed}
             onToggle={onToggleNode}
             showSystem={showSystem}
+            filterKind={filterKind}
           />
         ))}
       </div>
@@ -112,6 +169,7 @@ interface TreeNodeProps {
   collapsed: Record<string, boolean>;
   onToggle: (id: string) => void;
   showSystem: boolean;
+  filterKind: NodeKindFilter;
 }
 
 /** Renders one tree node recursively while preserving the execution hierarchy. */
@@ -123,13 +181,23 @@ function TreeNode({
   collapsed,
   onToggle,
   showSystem,
+  filterKind,
 }: TreeNodeProps) {
-  const isCollapsed = collapsed[node.id];
-  const children = showSystem
-    ? node.children
-    : node.children.filter(
-        (child) => child.kind !== 'method' || !child.label.startsWith('System.'),
-      );
+  if (filterKind !== 'all' && !hasMatchingDescendant(node, filterKind)) {
+    return null;
+  }
+
+  const isCollapsed = filterKind === 'all' ? collapsed[node.id] : false;
+  const children = (
+    showSystem
+      ? node.children
+      : node.children.filter(
+          (child) =>
+            child.kind !== 'method' || !child.label.startsWith('System.'),
+        )
+  ).filter(
+    (child) => filterKind === 'all' || hasMatchingDescendant(child, filterKind),
+  );
 
   return (
     <div className="tree-node-wrap">
@@ -176,6 +244,7 @@ function TreeNode({
             collapsed={collapsed}
             onToggle={onToggle}
             showSystem={showSystem}
+            filterKind={filterKind}
           />
         ))}
     </div>
