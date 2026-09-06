@@ -191,10 +191,7 @@ export function VscodeSidebarSurface(): ReactElement {
           activeLogId={activeLogId}
           selectedNodeId=""
           loading={loading}
-          onSelectMatch={(logId, nodeId) => {
-            openLog(logId);
-            post({ type: 'open-node', logId, nodeId });
-          }}
+          onSelectMatch={(logId) => openLog(logId)}
         />
       )}
     </div>
