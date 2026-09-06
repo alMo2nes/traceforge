@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type ReactElement } from 'react';
 import {
   flattenNodes,
   type InvestigationNode,
@@ -107,7 +107,7 @@ function post(message: unknown): void {
   window.acquireVsCodeApi?.().postMessage(message);
 }
 
-export function VscodeSidebarSurface(): React.ReactElement {
+export function VscodeSidebarSurface(): ReactElement {
   const [orgs, setOrgs] = useState<OrgInfo[]>([]);
   const [selectedOrg, setSelectedOrg] = useState('');
   const [logs, setLogs] = useState<LogRecord[]>([]);
@@ -151,7 +151,9 @@ export function VscodeSidebarSurface(): React.ReactElement {
   }, [selectedOrg]);
 
   const matches = useMemo<SearchMatch[]>(
-    () => logs.filter((log) => selectedLogIds.includes(log.id)).flatMap((log) => containsQuery(log, query).map((node) => ({ log, node }))),
+    () => logs
+      .filter((log) => selectedLogIds.includes(log.id))
+      .flatMap((log) => containsQuery(log, query).map((node) => ({ log, node }))),
     [logs, selectedLogIds, query],
   );
 
@@ -189,14 +191,17 @@ export function VscodeSidebarSurface(): React.ReactElement {
           activeLogId={activeLogId}
           selectedNodeId=""
           loading={loading}
-          onSelectMatch={(logId) => openLog(logId)}
+          onSelectMatch={(logId, nodeId) => {
+            openLog(logId);
+            post({ type: 'open-node', logId, nodeId });
+          }}
         />
       )}
     </div>
   );
 }
 
-export function VscodeTransactionSurface(): React.ReactElement {
+export function VscodeTransactionSurface(): ReactElement {
   const vscode = window.acquireVsCodeApi?.();
   const [org, setOrg] = useState('');
   const [logId, setLogId] = useState('');
@@ -213,15 +218,18 @@ export function VscodeTransactionSurface(): React.ReactElement {
   useEffect(() => {
     post({ type: 'ready', surface: 'transaction' });
     const handler = (event: MessageEvent) => {
-      const message = event.data as { type?: string; org?: string; logId?: string };
+      const message = event.data as { type?: string; org?: string; logId?: string; nodeId?: string };
       if (message?.type === 'open-log' && message.org && message.logId) {
         setOrg(message.org);
         setLogId(message.logId);
       }
+      if (message?.type === 'open-node' && message.logId === logId && message.nodeId) {
+        setSelectedNodeId(message.nodeId);
+      }
     };
     window.addEventListener('message', handler);
     return () => window.removeEventListener('message', handler);
-  }, []);
+  }, [logId]);
 
   useEffect(() => {
     if (!org || !logId) return;
@@ -278,7 +286,7 @@ export function VscodeTransactionSurface(): React.ReactElement {
   );
 }
 
-export function VscodeInspectorSurface(): React.ReactElement {
+export function VscodeInspectorSurface(): ReactElement {
   const [node, setNode] = useState<InvestigationNode>();
   const [activeLog, setActiveLog] = useState<LogRecord>();
 
