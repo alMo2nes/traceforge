@@ -7,6 +7,7 @@ import {
 } from './data';
 import {
   traceforgeApi,
+  vscodeApi,
   type DebugLogInfo,
   type InvestigationNodeDto,
   type OrgInfo,
@@ -105,7 +106,7 @@ function visibleVariables(rootNodes: InvestigationNode[], selectedId: string): V
 }
 
 function post(message: unknown): void {
-  window.acquireVsCodeApi?.().postMessage(message);
+  vscodeApi?.postMessage(message);
 }
 
 export function VscodeSidebarSurface(): ReactElement {
@@ -200,7 +201,6 @@ export function VscodeSidebarSurface(): ReactElement {
 }
 
 export function VscodeTransactionSurface(): ReactElement {
-  const vscode = window.acquireVsCodeApi?.();
   const [org, setOrg] = useState('');
   const [logId, setLogId] = useState('');
   const [log, setLog] = useState<LogRecord>();
@@ -259,7 +259,7 @@ export function VscodeTransactionSurface(): ReactElement {
     setSelectedNodeId(id);
     const selected = log && flattenNodes(log.nodes).find((node) => node.id === id);
     if (selected) {
-      vscode?.postMessage({ type: 'node-selected', logId, nodeId: id, node: selected, activeLog: log });
+      vscodeApi?.postMessage({ type: 'node-selected', logId, nodeId: id, node: selected, activeLog: log });
     }
   };
 
