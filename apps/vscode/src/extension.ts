@@ -145,7 +145,10 @@ export function activate(context: vscode.ExtensionContext): void {
         },
         onNodeSelected: (payload) => {
           inspector.postMessage({ type: 'node-selected', ...payload });
-          void vscode.commands.executeCommand('workbench.action.focusPanel');
+          void vscode.commands.executeCommand(
+            'workbench.action.openView',
+            INSPECTOR_VIEW_ID,
+          );
         },
       },
     );
