@@ -6,49 +6,79 @@ import { DebugLogService, TraceFlagService } from '@traceforge/salesforce';
 import { createWebviewHandler } from './webviewBridge.js';
 import { TraceForgeSidebarProvider } from './SidebarProvider.js';
 
-const VIEW_TYPE = 'traceforge';
-const PANEL_TITLE = 'TraceForge';
+const TRANSACTION_VIEW_TYPE = 'traceforge.transaction';
+const TRANSACTION_TITLE = 'TraceForge: Transaction';
+const INSPECTOR_VIEW_ID = 'traceforge.inspector';
+const WEB_ROOT = 'media/web';
 
-/** VS Code extension entry point. The extension host owns all local operations. */
+export class TraceForgeInspectorProvider implements vscode.WebviewViewProvider {
+  private webview?: vscode.Webview;
+
+  constructor(private readonly context: vscode.ExtensionContext) {}
+
+  resolveWebviewView(webviewView: vscode.WebviewView): void {
+    this.webview = webviewView.webview;
+    webviewView.webview.options = {
+      enableScripts: true,
+      localResourceRoots: [vscode.Uri.joinPath(this.context.extensionUri, WEB_ROOT)],
+    };
+    void setWebviewContent(webviewView.webview, this.context.extensionUri, 'inspector');
+  }
+
+  postMessage(message: unknown): void {
+    void this.webview?.postMessage(message);
+  }
+}
+
 export function activate(context: vscode.ExtensionContext): void {
   const services = {
     debugLogs: new DebugLogService(),
     traceFlags: new TraceFlagService(),
   };
 
-  let panel: vscode.WebviewPanel | undefined;
+  const sidebar = new TraceForgeSidebarProvider();
+  const inspector = new TraceForgeInspectorProvider(context);
 
-  const open = () => {
-    if (panel) {
-      panel.reveal(vscode.ViewColumn.One);
-      return panel;
+  let transactionPanel: vscode.WebviewPanel | undefined;
+  let inspectorView: TraceForgeInspectorProvider | undefined = inspector;
+
+  const openTransaction = (org: string, logId: string) => {
+    if (transactionPanel) {
+      transactionPanel.reveal(vscode.ViewColumn.One);
+      void transactionPanel.webview.postMessage({ type: 'open-log', org, logId });
+      return transactionPanel;
     }
 
-    panel = vscode.window.createWebviewPanel(
-      VIEW_TYPE,
-      PANEL_TITLE,
+    transactionPanel = vscode.window.createWebviewPanel(
+      TRANSACTION_VIEW_TYPE,
+      TRANSACTION_TITLE,
       vscode.ViewColumn.One,
       {
         enableScripts: true,
-        localResourceRoots: [
-          vscode.Uri.joinPath(context.extensionUri, 'media', 'web'),
-        ],
+        retainContextWhenHidden: true,
+        localResourceRoots: [vscode.Uri.joinPath(context.extensionUri, WEB_ROOT)],
       },
     );
 
-    void setWebviewContent(panel.webview, context.extensionUri);
-
-    const bridge = createWebviewHandler(panel.webview, services, context);
-    panel.onDidDispose(() => {
-      bridge.dispose();
-      panel = undefined;
+    void setWebviewContent(transactionPanel.webview, context.extensionUri, 'transaction');
+    const bridge = createWebviewHandler(transactionPanel.webview, services, context, {
+      onNodeSelected: (payload) => {
+        inspectorView?.postMessage({ type: 'node-selected', ...payload });
+        void vscode.commands.executeCommand(`${INSPECTOR_VIEW_ID}.focus`);
+      },
     });
 
-    return panel;
+    transactionPanel.onDidDispose(() => {
+      bridge.dispose();
+      transactionPanel = undefined;
+    });
+
+    void transactionPanel.webview.postMessage({ type: 'open-log', org, logId });
+    return transactionPanel;
   };
 
   context.subscriptions.push(
-    vscode.commands.registerCommand('traceforge.open', () => open()),
+    vscode.commands.registerCommand('traceforge.open', () => openTransaction('', '')),
     vscode.commands.registerCommand('traceforge.analyzeLatestLog', async () => {
       try {
         const orgs = await services.debugLogs.listOrgs();
@@ -69,34 +99,35 @@ export function activate(context: vscode.ExtensionContext): void {
           return;
         }
 
-        // The web UI loads logs newest-first and selects the first one automatically.
-        open();
+        openTransaction(org.alias, logs[0].id);
       } catch (error) {
         await vscode.window.showErrorMessage(errorMessage(error));
       }
     }),
-    vscode.window.registerWebviewViewProvider(
-      'traceforge.sidebar',
-      new TraceForgeSidebarProvider(),
-    ),
+    vscode.window.registerWebviewViewProvider('traceforge.sidebar', sidebar),
+    vscode.window.registerWebviewViewProvider(INSPECTOR_VIEW_ID, inspector),
   );
+
+  sidebar.setOpenLogHandler((org, logId) => openTransaction(org, logId));
+  sidebar.setInspectorMessageHandler((message) => inspector.postMessage(message));
 }
 
 export function deactivate(): void {
   // No persistent resources need explicit cleanup.
 }
 
-/** Load the Vite build and rewrite local assets to trusted Webview URIs. */
 async function setWebviewContent(
   webview: vscode.Webview,
   extensionUri: vscode.Uri,
+  surface: 'transaction' | 'inspector',
 ): Promise<void> {
-  const webRoot = vscode.Uri.joinPath(extensionUri, 'media', 'web');
-  const indexPath = join(extensionUri.fsPath, 'media', 'web', 'index.html');
+  const webRoot = vscode.Uri.joinPath(extensionUri, WEB_ROOT);
+  const indexPath = join(extensionUri.fsPath, WEB_ROOT, 'index.html');
   const source = await readFile(indexPath, 'utf8');
   const nonce = createNonce();
 
   const html = source
+    .replace(/<body>/, `<body data-traceforge-surface="${surface}">`)
     .replace(
       /(src|href)="(\.\/|\/)?([^"]+)"/g,
       (match, attribute: string, _prefix: string, asset: string) => {
@@ -105,10 +136,8 @@ async function setWebviewContent(
         return `${attribute}="${uri}"`;
       },
     )
-    .replace(
-      /<script([^>]*?)>/g,
-      (_match, attributes: string) =>
-        `<script nonce="${nonce}"${attributes}>`,
+    .replace(/<script([^>]*?)>/g, (_match, attributes: string) =>
+      `<script nonce="${nonce}"${attributes}>`,
     );
 
   const csp = [
@@ -127,10 +156,7 @@ async function setWebviewContent(
 
 function createNonce(): string {
   const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
-  return Array.from(
-    { length: 32 },
-    () => alphabet[Math.floor(Math.random() * alphabet.length)],
-  ).join('');
+  return Array.from({ length: 32 }, () => alphabet[Math.floor(Math.random() * alphabet.length)]).join('');
 }
 
 function errorMessage(error: unknown): string {
