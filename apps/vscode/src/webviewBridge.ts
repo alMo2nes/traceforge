@@ -24,6 +24,7 @@ export interface ExtensionServices {
 
 export interface WebviewBridgeHandlers {
   onOpenLog?: (org: string, logId: string) => void;
+  onOpenNode?: (logId: string, nodeId: string) => void;
   onNodeSelected?: (payload: Record<string, unknown>) => void;
   onReady?: (surface?: string) => void;
 }
@@ -88,8 +89,15 @@ function handleSurfaceMessage(
     return true;
   }
 
+  if (message.type === 'open-node') {
+    const logId = typeof message.logId === 'string' ? message.logId : '';
+    const nodeId = typeof message.nodeId === 'string' ? message.nodeId : '';
+    if (logId && nodeId) handlers.onOpenNode?.(logId, nodeId);
+    return true;
+  }
+
   if (message.type === 'node-selected') {
-    handlers.onNodeSelected?.(message as Record<string, unknown>);
+    handlers.onNodeSelected?.(message);
     return true;
   }
 
