@@ -15,9 +15,7 @@ import { LogsPanel } from './components/LogsPanel';
 import { SearchResultsPanel, type SearchMatch } from './components/SearchResultsPanel';
 import { TransactionPanel } from './components/TransactionPanel';
 import { InspectorPanel } from './components/InspectorPanel';
-import { LoadingSpinner } from './components/LoadingSpinner';
 import { Toolbar } from './components/Toolbar';
-import { TraceFlagModal } from './TraceFlagModal';
 import { RawLogModal } from './components/RawLogModal';
 import './styles.css';
 import './layout.css';
@@ -105,7 +103,11 @@ function visibleVariables(rootNodes: InvestigationNode[], selectedId: string): V
   return [...merged.values()];
 }
 
-export function VscodeSidebarSurface(): JSX.Element {
+function post(message: unknown): void {
+  window.acquireVsCodeApi?.().postMessage(message);
+}
+
+export function VscodeSidebarSurface(): React.ReactElement {
   const [orgs, setOrgs] = useState<OrgInfo[]>([]);
   const [selectedOrg, setSelectedOrg] = useState('');
   const [logs, setLogs] = useState<LogRecord[]>([]);
@@ -116,6 +118,7 @@ export function VscodeSidebarSurface(): JSX.Element {
   const [error, setError] = useState('');
 
   useEffect(() => {
+    post({ type: 'ready', surface: 'sidebar' });
     let cancelled = false;
     traceforgeApi.listOrgs().then((items) => {
       if (cancelled) return;
@@ -154,7 +157,7 @@ export function VscodeSidebarSurface(): JSX.Element {
 
   const openLog = (id: string) => {
     setActiveLogId(id);
-    window.acquireVsCodeApi?.().postMessage({ type: 'open-log', org: selectedOrg, logId: id });
+    post({ type: 'open-log', org: selectedOrg, logId: id });
   };
 
   return (
@@ -170,13 +173,30 @@ export function VscodeSidebarSurface(): JSX.Element {
         <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search logs…" aria-label="Search logs" />
       </div>
       {error && <div className="connection-banner">{error}</div>}
-      <LogsPanel logs={logs} selectedLogIds={selectedLogIds} activeLogId={activeLogId} loading={loading} onSelectLog={openLog} onToggleLog={(id) => setSelectedLogIds((current) => current.includes(id) ? current.filter((item) => item !== id) : [...current, id])} />
-      {query && <SearchResultsPanel matches={matches} query={query} selectedLogCount={selectedLogIds.length} activeLogId={activeLogId} selectedNodeId="" loading={loading} onSelectMatch={(logId) => openLog(logId)} />}
+      <LogsPanel
+        logs={logs}
+        selectedLogIds={selectedLogIds}
+        activeLogId={activeLogId}
+        loading={loading}
+        onSelectLog={openLog}
+        onToggleLog={(id) => setSelectedLogIds((current) => current.includes(id) ? current.filter((item) => item !== id) : [...current, id])}
+      />
+      {query && (
+        <SearchResultsPanel
+          matches={matches}
+          query={query}
+          selectedLogCount={selectedLogIds.length}
+          activeLogId={activeLogId}
+          selectedNodeId=""
+          loading={loading}
+          onSelectMatch={(logId) => openLog(logId)}
+        />
+      )}
     </div>
   );
 }
 
-export function VscodeTransactionSurface(): JSX.Element {
+export function VscodeTransactionSurface(): React.ReactElement {
   const vscode = window.acquireVsCodeApi?.();
   const [org, setOrg] = useState('');
   const [logId, setLogId] = useState('');
@@ -191,6 +211,7 @@ export function VscodeTransactionSurface(): JSX.Element {
   const [rawLog, setRawLog] = useState('');
 
   useEffect(() => {
+    post({ type: 'ready', surface: 'transaction' });
     const handler = (event: MessageEvent) => {
       const message = event.data as { type?: string; org?: string; logId?: string };
       if (message?.type === 'open-log' && message.org && message.logId) {
@@ -257,11 +278,12 @@ export function VscodeTransactionSurface(): JSX.Element {
   );
 }
 
-export function VscodeInspectorSurface(): JSX.Element {
+export function VscodeInspectorSurface(): React.ReactElement {
   const [node, setNode] = useState<InvestigationNode>();
   const [activeLog, setActiveLog] = useState<LogRecord>();
 
   useEffect(() => {
+    post({ type: 'ready', surface: 'inspector' });
     const handler = (event: MessageEvent) => {
       const message = event.data as { type?: string; node?: InvestigationNode; activeLog?: LogRecord };
       if (message?.type === 'node-selected') {
