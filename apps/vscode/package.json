@@ -1,0 +1,68 @@
+{
+  "name": "traceforge-vscode",
+  "displayName": "TraceForge",
+  "description": "Salesforce debug log investigation inside Visual Studio Code",
+  "version": "0.1.0",
+  "publisher": "traceforge",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.105.0"
+  },
+  "categories": [
+    "Other",
+    "Visualization"
+  ],
+  "activationEvents": [
+    "onCommand:traceforge.open",
+    "onView:traceforge.sidebar",
+    "onWebviewPanel:traceforge"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "traceforge.open",
+        "title": "TraceForge: Open Investigation"
+      },
+      {
+        "command": "traceforge.analyzeLatestLog",
+        "title": "TraceForge: Analyze Latest Salesforce Log"
+      }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "traceforge",
+          "title": "TraceForge",
+          "icon": "resources/traceforge.svg"
+        }
+      ]
+    },
+    "views": {
+      "traceforge": [
+        {
+          "id": "traceforge.sidebar",
+          "name": "TraceForge",
+          "type": "webview"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "compile": "tsc -p ./tsconfig.json",
+    "build:web": "pnpm --dir ../web build",
+    "prepare-webview": "node ./scripts/prepare-webview.mjs",
+    "build": "pnpm build:web && pnpm prepare-webview && pnpm compile",
+    "watch": "tsc -watch -p ./tsconfig.json",
+    "vscode:prepublish": "pnpm build"
+  },
+  "dependencies": {
+    "@traceforge/investigation": "workspace:*",
+    "@traceforge/salesforce": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "@types/vscode": "^1.105.0",
+    "typescript": "^5.9.0"
+  }
+}
