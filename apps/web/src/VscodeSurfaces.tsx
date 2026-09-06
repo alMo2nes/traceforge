@@ -78,10 +78,11 @@ function containsQuery(log: LogRecord, query: string): InvestigationNode[] {
     ].some((value) => value?.toLowerCase().includes(needle)),
   );
   if (matches.length) return matches;
+  const rootNode = log.nodes[0];
   return [log.entryPoint, log.operation, log.user, log.summary].some((value) =>
     value?.toLowerCase().includes(needle),
-  )
-    ? [log.nodes[0]]
+  ) && rootNode
+    ? [rootNode]
     : [];
 }
 
