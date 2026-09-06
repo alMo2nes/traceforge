@@ -1,8 +1,10 @@
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import * as vscode from 'vscode';
-import { DebugLogService, TraceFlagService } from '@traceforge/salesforce';
-import { createWebviewHandler, type ExtensionServices } from './webviewBridge.js';
+import {
+  createWebviewHandler,
+  type ExtensionServices,
+} from './webviewBridge.js';
 
 const WEB_ROOT = 'media/web';
 
@@ -24,9 +26,7 @@ export class TraceForgeSidebarProvider implements vscode.WebviewViewProvider {
       this.webview,
       this.services,
       this.context,
-      {
-        onOpenLog: this.onOpenLog,
-      },
+      { onOpenLog: this.onOpenLog },
     );
 
     this.webview.options = {
@@ -47,7 +47,11 @@ export class TraceForgeSidebarProvider implements vscode.WebviewViewProvider {
     if (!this.webview) return;
 
     const webRoot = vscode.Uri.joinPath(this.context.extensionUri, WEB_ROOT);
-    const indexPath = join(this.context.extensionUri.fsPath, WEB_ROOT, 'index.html');
+    const indexPath = join(
+      this.context.extensionUri.fsPath,
+      WEB_ROOT,
+      'index.html',
+    );
     const source = await readFile(indexPath, 'utf8');
     const nonce = createNonce();
 
@@ -85,7 +89,8 @@ export class TraceForgeSidebarProvider implements vscode.WebviewViewProvider {
 }
 
 function createNonce(): string {
-  const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+  const alphabet =
+    'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
   return Array.from(
     { length: 32 },
     () => alphabet[Math.floor(Math.random() * alphabet.length)],
