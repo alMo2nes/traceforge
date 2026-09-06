@@ -17,9 +17,14 @@ export interface WebviewRequest {
   args: Record<string, unknown>;
 }
 
-interface ExtensionServices {
+export interface ExtensionServices {
   debugLogs: DebugLogService;
   traceFlags: TraceFlagService;
+}
+
+export interface WebviewBridgeHandlers {
+  onOpenLog?: (org: string, logId: string) => void;
+  onNodeSelected?: (payload: Record<string, unknown>) => void;
 }
 
 interface BridgeResponse {
@@ -30,16 +35,14 @@ interface BridgeResponse {
   error?: string;
 }
 
-/**
- * Handle all messages coming from the React Webview. Keeping this boundary
- * small makes it possible to reuse the same React UI from a future IntelliJ plugin.
- */
 export function createWebviewHandler(
   webview: vscode.Webview,
   services: ExtensionServices,
   context: vscode.ExtensionContext,
+  handlers: WebviewBridgeHandlers = {},
 ): vscode.Disposable {
-  return webview.onDidReceiveMessage(async (message: WebviewRequest) => {
+  return webview.onDidReceiveMessage(async (message: unknown) => {
+    if (handleSurfaceMessage(message, handlers)) return;
     if (!isRequest(message)) return;
 
     try {
@@ -61,6 +64,28 @@ export function createWebviewHandler(
       await webview.postMessage(response);
     }
   });
+}
+
+function handleSurfaceMessage(
+  value: unknown,
+  handlers: WebviewBridgeHandlers,
+): boolean {
+  if (typeof value !== 'object' || value === null) return false;
+  const message = value as Record<string, unknown>;
+
+  if (message.type === 'open-log') {
+    const org = typeof message.org === 'string' ? message.org : '';
+    const logId = typeof message.logId === 'string' ? message.logId : '';
+    if (org && logId) handlers.onOpenLog?.(org, logId);
+    return true;
+  }
+
+  if (message.type === 'node-selected') {
+    handlers.onNodeSelected?.(message as Record<string, unknown>);
+    return true;
+  }
+
+  return false;
 }
 
 async function handleRequest(
@@ -130,15 +155,11 @@ async function handleRequest(
     }
 
     case 'openSource':
-      return openSource(request.args, context);
+      return openSource(request.args);
   }
 }
 
-/** Open the Apex class inferred from a method/code-unit label at its source line. */
-async function openSource(
-  args: Record<string, unknown>,
-  context: vscode.ExtensionContext,
-): Promise<boolean> {
+async function openSource(args: Record<string, unknown>): Promise<boolean> {
   const label = stringArg(args, 'label');
   const line = numberArg(args, 'line', 1);
 
@@ -166,7 +187,12 @@ async function openSource(
 
   const document = await vscode.workspace.openTextDocument(file);
   await vscode.window.showTextDocument(document, {
-    selection: new vscode.Range(Math.max(0, line - 1), 0, Math.max(0, line - 1), 0),
+    selection: new vscode.Range(
+      Math.max(0, line - 1),
+      0,
+      Math.max(0, line - 1),
+      0,
+    ),
     preview: false,
   });
 
@@ -176,19 +202,35 @@ async function openSource(
 function isRequest(value: unknown): value is WebviewRequest {
   if (typeof value !== 'object' || value === null) return false;
   const request = value as Partial<WebviewRequest>;
-  return request.type === 'request' && typeof request.id === 'string' && typeof request.method === 'string';
+  return (
+    request.type === 'request' &&
+    typeof request.id === 'string' &&
+    typeof request.method === 'string'
+  );
 }
 
-function stringArg(args: Record<string, unknown>, name: string): string | undefined {
+function stringArg(
+  args: Record<string, unknown>,
+  name: string,
+): string | undefined {
   const value = args[name];
   return typeof value === 'string' && value.length > 0 ? value : undefined;
 }
 
-function numberArg(args: Record<string, unknown>, name: string, fallback: number): number {
-  return typeof args[name] === 'number' && Number.isFinite(args[name]) ? Number(args[name]) : fallback;
+function numberArg(
+  args: Record<string, unknown>,
+  name: string,
+  fallback: number,
+): number {
+  return typeof args[name] === 'number' && Number.isFinite(args[name])
+    ? Number(args[name])
+    : fallback;
 }
 
-function assertRequired(value: string | undefined, name: string): asserts value is string {
+function assertRequired(
+  value: string | undefined,
+  name: string,
+): asserts value is string {
   if (!value) throw new Error(`${name} is required`);
 }
 
