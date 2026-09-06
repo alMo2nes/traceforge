@@ -20,7 +20,7 @@ interface InspectorPanelProps {
   governorLimits?: GovernorLimitUsageDto[];
   loading: boolean;
   detail: string;
-  onResizeStart: (event: ReactPointerEvent<HTMLDivElement>) => void;
+  onResizeStart?: (event: ReactPointerEvent<HTMLDivElement>) => void;
 }
 
 function formatDuration(value?: number): string {
@@ -43,15 +43,17 @@ export function InspectorPanel({
 }: InspectorPanelProps) {
   return (
     <>
-      <div
-        className="inspector-resizer"
-        role="separator"
-        aria-orientation="horizontal"
-        aria-label="Resize inspector"
-        onPointerDown={onResizeStart}
-      >
-        <span />
-      </div>
+      {onResizeStart && (
+        <div
+          className="inspector-resizer"
+          role="separator"
+          aria-orientation="horizontal"
+          aria-label="Resize inspector"
+          onPointerDown={onResizeStart}
+        >
+          <span />
+        </div>
+      )}
 
       <section className="inspector-panel panel">
         <div className="panel-header inspector-header">
