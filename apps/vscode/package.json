@@ -15,7 +15,8 @@
   "activationEvents": [
     "onCommand:traceforge.open",
     "onView:traceforge.sidebar",
-    "onWebviewPanel:traceforge"
+    "onView:traceforge.inspector",
+    "onWebviewPanel:traceforge.transaction"
   ],
   "main": "./out/extension.js",
   "contributes": {
@@ -43,6 +44,13 @@
         {
           "id": "traceforge.sidebar",
           "name": "TraceForge",
+          "type": "webview"
+        }
+      ],
+      "panel": [
+        {
+          "id": "traceforge.inspector",
+          "name": "TraceForge Inspector",
           "type": "webview"
         }
       ]
