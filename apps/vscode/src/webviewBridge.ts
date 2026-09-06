@@ -25,6 +25,7 @@ export interface ExtensionServices {
 export interface WebviewBridgeHandlers {
   onOpenLog?: (org: string, logId: string) => void;
   onNodeSelected?: (payload: Record<string, unknown>) => void;
+  onReady?: (surface?: string) => void;
 }
 
 interface BridgeResponse {
@@ -73,6 +74,13 @@ function handleSurfaceMessage(
   if (typeof value !== 'object' || value === null) return false;
   const message = value as Record<string, unknown>;
 
+  if (message.type === 'ready') {
+    handlers.onReady?.(
+      typeof message.surface === 'string' ? message.surface : undefined,
+    );
+    return true;
+  }
+
   if (message.type === 'open-log') {
     const org = typeof message.org === 'string' ? message.org : '';
     const logId = typeof message.logId === 'string' ? message.logId : '';
@@ -99,11 +107,9 @@ async function handleRequest(
   switch (request.method) {
     case 'listOrgs':
       return services.debugLogs.listOrgs();
-
     case 'listUsers':
       assertRequired(org, 'org');
       return services.traceFlags.listUsers(org);
-
     case 'listDebugLevels': {
       assertRequired(org, 'org');
       const levels = await services.traceFlags.listDebugLevels(org);
@@ -112,22 +118,15 @@ async function handleRequest(
           level.developerName.toUpperCase() === 'FINEST' ||
           level.masterLabel.toUpperCase() === 'FINEST',
       );
-      return {
-        levels,
-        finestAvailable: finest,
-        finestAutoCreate: !finest,
-      };
+      return { levels, finestAvailable: finest, finestAutoCreate: !finest };
     }
-
     case 'listLogs':
       assertRequired(org, 'org');
       return services.debugLogs.listLogs(org);
-
     case 'fetchLog':
       assertRequired(org, 'org');
       assertRequired(logId, 'logId');
       return { content: await services.debugLogs.fetchLog(org, logId) };
-
     case 'investigateLog': {
       assertRequired(org, 'org');
       assertRequired(logId, 'logId');
@@ -138,22 +137,18 @@ async function handleRequest(
         isTruncated: content.includes('MAXIMUM DEBUG LOG SIZE REACHED'),
       };
     }
-
     case 'createTraceFlag': {
       assertRequired(org, 'org');
       const userId = stringArg(request.args, 'userId');
       assertRequired(userId, 'userId');
-
       const debugLevelId = stringArg(request.args, 'debugLevelId');
       const durationMinutes = numberArg(request.args, 'durationMinutes', 30);
-
       return services.traceFlags.createOrUpdateUserTraceFlag(org, {
         userId,
         debugLevelId,
         durationMinutes,
       });
     }
-
     case 'openSource':
       return openSource(request.args);
   }
@@ -162,15 +157,13 @@ async function handleRequest(
 async function openSource(args: Record<string, unknown>): Promise<boolean> {
   const label = stringArg(args, 'label');
   const line = numberArg(args, 'line', 1);
-
   if (!label) return false;
 
   const match = label.match(/^([A-Za-z0-9_]+)\./);
   const className = match?.[1] ?? label.replace(/\(.*$/, '').trim();
   if (!className) return false;
 
-  const workspaceFolders = vscode.workspace.workspaceFolders;
-  if (!workspaceFolders?.length) {
+  if (!vscode.workspace.workspaceFolders?.length) {
     throw new Error('Open a Salesforce project/workspace before opening source.');
   }
 
@@ -180,7 +173,6 @@ async function openSource(args: Record<string, unknown>): Promise<boolean> {
     20,
   );
   const file = files[0];
-
   if (!file) {
     throw new Error(`Could not find ${className}.cls in the current workspace.`);
   }
@@ -195,7 +187,6 @@ async function openSource(args: Record<string, unknown>): Promise<boolean> {
     ),
     preview: false,
   });
-
   return true;
 }
 
