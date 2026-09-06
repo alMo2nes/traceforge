@@ -38,7 +38,7 @@ export function activate(context: vscode.ExtensionContext): void {
 
     void setWebviewContent(panel.webview, context.extensionUri);
 
-    const bridge = createWebviewHandler(panel.webview, services);
+    const bridge = createWebviewHandler(panel.webview, services, context);
     panel.onDidDispose(() => {
       bridge.dispose();
       panel = undefined;
