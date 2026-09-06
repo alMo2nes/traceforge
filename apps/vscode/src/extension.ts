@@ -79,6 +79,7 @@ export function activate(context: vscode.ExtensionContext): void {
   let transactionPanel: vscode.WebviewPanel | undefined;
   let transactionReady = false;
   let pendingLog: { org: string; logId: string } | undefined;
+  let pendingNode: { logId: string; nodeId: string } | undefined;
 
   const openTransaction = (org: string, logId: string): vscode.WebviewPanel => {
     if (transactionPanel) {
@@ -122,14 +123,25 @@ export function activate(context: vscode.ExtensionContext): void {
               ...message,
             });
           }
+          if (pendingNode) {
+            const message = pendingNode;
+            pendingNode = undefined;
+            void transactionPanel?.webview.postMessage({
+              type: 'open-node',
+              ...message,
+            });
+          }
         },
         onOpenNode: (selectedLogId, nodeId) => {
-          if (selectedLogId === pendingLog?.logId) return;
-          void transactionPanel?.webview.postMessage({
-            type: 'open-node',
-            logId: selectedLogId,
-            nodeId,
-          });
+          if (transactionReady) {
+            void transactionPanel?.webview.postMessage({
+              type: 'open-node',
+              logId: selectedLogId,
+              nodeId,
+            });
+          } else {
+            pendingNode = { logId: selectedLogId, nodeId };
+          }
         },
         onNodeSelected: (payload) => {
           inspector.postMessage({ type: 'node-selected', ...payload });
@@ -149,6 +161,7 @@ export function activate(context: vscode.ExtensionContext): void {
       transactionPanel = undefined;
       transactionReady = false;
       pendingLog = undefined;
+      pendingNode = undefined;
     });
 
     return transactionPanel;
