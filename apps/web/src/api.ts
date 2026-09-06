@@ -108,7 +108,7 @@ declare global {
  * - a normal browser, where requests use the local HTTP development API;
  * - a VS Code Webview, where requests cross the Webview/extension boundary.
  */
-const vscodeApi =
+export const vscodeApi =
   typeof window !== 'undefined' && window.acquireVsCodeApi
     ? window.acquireVsCodeApi()
     : undefined;
